@@ -10,10 +10,13 @@ Use Node 22.15+, 24, or 26 and npm 11.6 or newer.
 npm install
 npx deepspace auth login
 npx deepspace auth whoami
+npx deepspace app init
 npm run dev
 ```
 
-The first dev start registers the app under the account shown by `auth whoami`. Open [localhost:5173/board-preview](http://localhost:5173/board-preview) for the empty canvas. The preview uses fixture data and is available in dev. The controls are placeholders.
+Run `app init` once to register the app under the account shown by `auth whoami`. The scaffold was committed with the `__APP_ID__` placeholder, so `dev start` requires explicit initialization. After successful registration, commit the generated app ID in `wrangler.toml` so the checkout keeps using the same app.
+
+Open [localhost:5173/board-preview](http://localhost:5173/board-preview) for the empty canvas. The preview uses fixture data and is available in dev. The controls are placeholders.
 
 From a second terminal, run `npm run type-check` and `npm run build`. Keep the dev server running so Vite can generate the route types before the type check.
 
