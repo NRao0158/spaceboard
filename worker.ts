@@ -25,6 +25,7 @@ import { buildTools } from './src/ai/tools.js'
 import { tasks as cronTasks, runTask as runCronTask } from './src/cron.js'
 import { runJob } from './src/jobs.js'
 import { schemas } from './src/schemas.js'
+import { boardSchemas } from './src/schemas/board-schema.js'
 import { registerActionRoutes } from './src/server/action-routes.js'
 import {
   registerAuthAndIntegrationRoutes,
@@ -46,7 +47,7 @@ export const __DO_MANIFEST__ = [
 
 export class AppRecordRoom extends RecordRoom<Env> {
   constructor(state: DurableObjectState, env: Env) {
-    super(state, env, schemas, { ownerUserId: env.OWNER_USER_ID })
+    super(state, env, [...schemas, ...boardSchemas], { ownerUserId: env.OWNER_USER_ID })
   }
 }
 

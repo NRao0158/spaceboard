@@ -1,5 +1,5 @@
-/** App name — replaced by the CLI during scaffolding */
-export const APP_NAME = 'spaceboard-nihal'
+/** Product name used in the UI. The deploy name is set in wrangler.toml. */
+export const APP_NAME = 'SpaceBoard'
 
 /** Immutable app identity — data scope keys to this, so renames never
  *  strand your records.
