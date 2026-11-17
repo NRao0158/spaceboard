@@ -1,37 +1,63 @@
-import type { RecordData, UserProfile } from 'deepspace'
+import type { RecordData } from 'deepspace'
 import type { CollectionSchema } from 'deepspace/schema'
-
-export type SpaceBoardUser = Pick<UserProfile, 'id' | 'name'>
+import { z } from 'zod'
 
 export const BOARD_RECORD_ID = 'board'
 export const NOTE_COLORS = ['lemon', 'mint', 'lilac', 'peach'] as const
+export const MAX_BOARD_TITLE = 80
+export const MAX_NOTE_LENGTH = 2000
+export const MAX_NOTES = 120
+export const CANVAS_WIDTH = 3200
+export const CANVAS_HEIGHT = 2400
+export const NOTE_WIDTH = 248
+export const NOTE_TOP_LIMIT = CANVAS_HEIGHT - 300
 
-export interface BoardFields {
-  title: string
-}
+export const boardIdSchema = z.uuidv4()
+export const boardTitleSchema = z.string().trim().min(1).max(MAX_BOARD_TITLE)
+export const noteTextSchema = z.object({
+  markdown: z.string().trim().min(1).max(MAX_NOTE_LENGTH),
+  color: z.enum(NOTE_COLORS),
+}).strict()
+export const notePositionSchema = z.object({
+  x: z.number().int().min(0).max(CANVAS_WIDTH - NOTE_WIDTH),
+  y: z.number().int().min(0).max(NOTE_TOP_LIMIT),
+}).strict()
+export const noteFieldsSchema = noteTextSchema.extend(notePositionSchema.shape)
 
-export interface NoteFields {
-  markdown: string
-  color: (typeof NOTE_COLORS)[number]
-  x: number
-  y: number
-}
-
-export type Board = RecordData<BoardFields>
+export type BoardFields = { title: string }
+export type NoteFields = z.infer<typeof noteFieldsSchema>
 export type Note = RecordData<NoteFields>
+export type Point = z.infer<typeof notePositionSchema>
+export type BoardDetails = { id: string; title: string }
+
+export function boardRoomId(boardId: string) {
+  return 'board:' + boardId
+}
+
+export function boardIdFromPath(path: string): string | null {
+  const prefix = '/boards/'
+  if (!path.startsWith(prefix)) return null
+  const id = path.slice(prefix.length).replace(/\/$/, '')
+  return boardIdSchema.safeParse(id).success ? id.toLowerCase() : null
+}
+
+export function keepNoteOnCanvas({ x, y }: Point): Point {
+  return {
+    x: Math.round(Math.min(CANVAS_WIDTH - NOTE_WIDTH, Math.max(0, x))),
+    y: Math.round(Math.min(NOTE_TOP_LIMIT, Math.max(0, y))),
+  }
+}
 
 const denied = { read: false, create: false, update: false, delete: false }
 const readOnly = { ...denied, read: true }
 
-// Board writes stay closed while the schema and canvas are under review.
-const permissions = { '*': denied, viewer: denied, member: readOnly, admin: readOnly }
+// WebSocket joins are verified by the Worker. Writes use the validated board API.
+const permissions = { '*': denied, viewer: readOnly, member: readOnly, admin: readOnly }
 
 export const boardSchemas: CollectionSchema[] = [
   {
     name: 'boards',
-    columns: [
-      { name: 'title', storage: 'text', interpretation: 'plain', required: true },
-    ],
+    columns: [{ name: 'title', storage: 'text', interpretation: 'plain', required: true }],
     permissions,
   },
   {

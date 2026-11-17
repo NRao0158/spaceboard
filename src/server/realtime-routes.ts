@@ -11,6 +11,8 @@ import type { Context, Hono } from 'hono'
 import { authenticatedRoomRequest, resolveAppRole, verifyJwt } from 'deepspace/worker'
 import type { JwtVerifierConfig, VerifyResult } from 'deepspace/worker'
 import type { AppContext, Env } from '../../worker.js'
+import { boardIdSchema, boardRoomId } from '../schemas/board-schema.js'
+import { boardStub, getBoard } from './board-room.js'
 
 function jwtConfig(env: Env): JwtVerifierConfig {
   return { publicKey: env.AUTH_JWT_PUBLIC_KEY, issuer: env.AUTH_JWT_ISSUER }
@@ -120,11 +122,29 @@ async function resolveDocsYjsRole(
   return null
 }
 
+async function joinBoardRoom(c: Context<AppContext>, scopeId: string, kind: 'records' | 'presence') {
+  const id = boardIdSchema.safeParse(scopeId.slice('board:'.length))
+  if (!id.success || scopeId !== boardRoomId(id.data.toLowerCase())) {
+    return new Response('Board not found.', { status: 404 })
+  }
+  const token = new URL(c.req.url).searchParams.get('token')
+  const auth = token ? (await verifyJwt(jwtConfig(c.env), token)).result : null
+  if (!auth) return new Response('Sign in required.', { status: 401 })
+  const board = boardStub(c.env, id.data)
+  if (!await getBoard(board, auth.userId)) return new Response('Board not found.', { status: 404 })
+  const presence = c.env.PRESENCE_ROOMS
+  const target = kind === 'records' ? board : presence.get(presence.idFromName(scopeId))
+  return target.fetch(authenticatedRoomRequest(c.req.raw, auth))
+}
+
 export function registerRealtimeRoutes(app: Hono<AppContext>): void {
-  app.get(
-    '/ws/:roomId',
-    wsRoute((env) => env.RECORD_ROOMS),
-  )
+  const appRecords = wsRoute((env) => env.RECORD_ROOMS)
+  app.get('/ws/:roomId', (c) => {
+    const id = c.req.param('roomId')
+    if (id.startsWith('board:')) return joinBoardRoom(c, id, 'records')
+    if (id !== 'app:' + c.env.DEEPSPACE_APP_ID) return new Response('Not found', { status: 404 })
+    return appRecords(c)
+  })
 
   app.get('/ws/yjs/:docId', async (c) => {
     const docId = c.req.param('docId')
@@ -150,10 +170,11 @@ export function registerRealtimeRoutes(app: Hono<AppContext>): void {
     ),
   )
 
-  app.get(
-    '/ws/presence/:scopeId',
-    wsRoute((env) => env.PRESENCE_ROOMS),
-  )
+  app.get('/ws/presence/:scopeId', (c) => {
+    const id = c.req.param('scopeId')
+    if (!id.startsWith('board:')) return new Response('Not found', { status: 404 })
+    return joinBoardRoom(c, id, 'presence')
+  })
 
   app.get(
     '/ws/cron/:roomId',

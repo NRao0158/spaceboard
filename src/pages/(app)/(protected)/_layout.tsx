@@ -13,10 +13,11 @@
  * overlay). The sign-in overlay opens on demand and can be dismissed.
  */
 
-import { useState } from 'react'
-import { Link, Outlet } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { Link, Outlet, useLocation } from 'react-router-dom'
 import { AuthGate, AuthOverlay } from 'deepspace'
 import { Button } from '@/components/ui'
+import { rememberBoardAfterSignIn } from '@/lib/board-api'
 
 export default function ProtectedLayout() {
   return (
@@ -27,7 +28,9 @@ export default function ProtectedLayout() {
 }
 
 function SignedOutPanel() {
+  const location = useLocation()
   const [showAuthModal, setShowAuthModal] = useState(false)
+  useEffect(() => { rememberBoardAfterSignIn(location.pathname) }, [location.pathname])
 
   return (
     <div className="flex min-h-[60vh] items-center justify-center px-6 py-20">
@@ -47,7 +50,7 @@ function SignedOutPanel() {
         </Link>
       </div>
 
-      {showAuthModal && <AuthOverlay onClose={() => setShowAuthModal(false)} />}
+      {showAuthModal && <AuthOverlay title="Sign in to SpaceBoard" description="Sign in to open this board." onClose={() => setShowAuthModal(false)} />}
     </div>
   )
 }

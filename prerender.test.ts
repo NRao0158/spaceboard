@@ -1,5 +1,4 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { build, type ResolvedConfig } from 'vite'
@@ -17,7 +16,7 @@ afterEach(() => {
 })
 
 async function buildPages(noindex: boolean) {
-  const root = mkdtempSync(join(tmpdir(), 'scaffold-seo-'))
+  const root = mkdtempSync(join(process.cwd(), 'node_modules', '.spaceboard-seo-'))
   dirs.push(root)
   const client = join(root, 'dist/client')
   mkdirSync(client, { recursive: true })

@@ -1,111 +1,288 @@
-import { useQuery, useUserLookup } from 'deepspace'
-import { Link2, Plus, Sparkles, StickyNote } from 'lucide-react'
-import { cn } from '@/lib/utils'
-import { Button } from '@/components/ui'
-import { BOARD_RECORD_ID, type BoardFields, type Note, type NoteFields } from '@/schemas/board-schema'
+import { getUserColor, usePresenceRoom, useQuery, useRecordContext, useUserLookup } from 'deepspace'
+import { ArrowLeft, Check, Copy, Link2, Plus, Sparkles, StickyNote, Users } from 'lucide-react'
+import { useEffect, useRef, useState, type PointerEvent } from 'react'
+import { Link } from 'react-router-dom'
+import { BoardMarkdown } from './BoardMarkdown'
+import { NoteComposer } from './NoteComposer'
+import { StickyCard } from './StickyCard'
+import { Button, Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui'
+import { boardPath, boardRequest, type BoardSummary } from '@/lib/board-api'
+import {
+  CANVAS_HEIGHT, CANVAS_WIDTH, MAX_NOTES, boardRoomId, keepNoteOnCanvas,
+  type BoardDetails, type Note, type NoteFields, type Point,
+} from '@/schemas/board-schema'
 
-const noteColors: Record<NoteFields['color'], string> = {
-  lemon: 'bg-[#fff1ac]',
-  mint: 'bg-[#caf0df]',
-  lilac: 'bg-[#e8ddff]',
-  peach: 'bg-[#ffddcc]',
+type Draft = { key: string; point: Point; note?: Note }
+const control = 'border-slate-300 bg-white text-slate-800 shadow-none hover:bg-slate-100'
+const primary = 'bg-indigo-700 text-white hover:bg-indigo-800'
+const cursorColors = ['#4338ca', '#047857', '#a21caf', '#b45309', '#0e7490']
+
+function readCursor(value: unknown): Point | null {
+  if (!value || typeof value !== 'object' || !('x' in value) || !('y' in value)) return null
+  const { x, y } = value
+  if (typeof x !== 'number' || typeof y !== 'number' || !Number.isFinite(x) || !Number.isFinite(y)) return null
+  if (x < 0 || x > CANVAS_WIDTH || y < 0 || y > CANVAS_HEIGHT) return null
+  return { x, y }
 }
 
-export function BoardCanvas() {
-  const boards = useQuery<BoardFields>('boards')
-  const notes = useQuery<NoteFields>('notes', { orderBy: 'createdAt', orderDir: 'asc' })
+export function BoardCanvas({ board }: { board: BoardDetails }) {
+  const { records, status } = useQuery<NoteFields>('notes', { orderBy: 'createdAt', orderDir: 'asc', limit: MAX_NOTES })
+  const { status: roomStatus, ready } = useRecordContext()
   const { getName } = useUserLookup()
+  const { peers, connected, updateState } = usePresenceRoom(boardRoomId(board.id))
+  const scroller = useRef<HTMLDivElement>(null)
+  const surface = useRef<HTMLDivElement>(null)
+  const lastCursor = useRef(0)
+  const summaryRequest = useRef<AbortController | null>(null)
+  const [draft, setDraft] = useState<Draft>()
+  const [error, setError] = useState('')
+  const [shareOpen, setShareOpen] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const [summaryOpen, setSummaryOpen] = useState(false)
+  const [summaryBusy, setSummaryBusy] = useState(false)
+  const [summaryError, setSummaryError] = useState('')
+  const [summary, setSummary] = useState<BoardSummary>()
+  const [pendingMoves, setPendingMoves] = useState<Record<string, Point>>({})
+  const editable = ready && roomStatus === 'connected' && status === 'ready'
+  const canAdd = editable && records.length < MAX_NOTES
+  const path = '/' + board.id
+  const shareUrl = new URL(boardPath(board.id), window.location.origin).href
 
-  if (boards.status === 'error' || notes.status === 'error') {
-    return <p role="alert" className="p-6">Couldn’t load the board. Refresh to try again.</p>
+  useEffect(() => () => summaryRequest.current?.abort(), [])
+
+  useEffect(() => {
+    setPendingMoves((pending) => {
+      const stillWaiting = Object.entries(pending).filter(([id, point]) => {
+        const note = records.find((record) => record.recordId === id)
+        return note && (note.data.x !== point.x || note.data.y !== point.y)
+      })
+      return stillWaiting.length === Object.keys(pending).length ? pending : Object.fromEntries(stillWaiting)
+    })
+  }, [records])
+
+  function trackCursor(event: PointerEvent<HTMLDivElement>) {
+    const now = performance.now()
+    if (!connected || !surface.current || now - lastCursor.current < 42) return
+    lastCursor.current = now
+    const rect = surface.current.getBoundingClientRect()
+    const cursor = readCursor({ x: Math.round(event.clientX - rect.left), y: Math.round(event.clientY - rect.top) })
+    updateState({ cursor })
   }
 
-  if (boards.status === 'loading' || notes.status === 'loading') {
-    return <p role="status" className="p-6">Loading board…</p>
+  function addNote() {
+    if (!canAdd) return
+    const view = scroller.current
+    const left = view?.scrollLeft ?? 0
+    const top = view?.scrollTop ?? 0
+    let point = keepNoteOnCanvas({ x: left + 24, y: top + 24 })
+    const columns = Math.max(1, Math.floor(((view?.clientWidth ?? 520) - 24) / 270))
+    for (let i = 0; i <= records.length; i += 1) {
+      point = keepNoteOnCanvas({ x: left + 24 + (i % columns) * 270, y: top + 24 + Math.floor(i / columns) * 200 })
+      if (!records.some(({ data }) => Math.abs(data.x - point.x) < 248 && Math.abs(data.y - point.y) < 190)) break
+    }
+    setDraft({ key: crypto.randomUUID(), point })
   }
 
-  const board = boards.records.find(({ recordId }) => recordId === BOARD_RECORD_ID)
-  if (!board) return <p className="p-6">Board not found.</p>
+  function editNote(note: Note) {
+    setDraft({ key: note.recordId, point: { x: note.data.x, y: note.data.y }, note })
+  }
+
+  async function saveNote(data: Pick<NoteFields, 'markdown' | 'color'>) {
+    if (!draft) return
+    if (draft.note) {
+      await boardRequest(path + '/notes/' + draft.note.recordId, { method: 'PATCH', data })
+    } else {
+      await boardRequest(path + '/notes', { method: 'POST', data: { ...data, ...draft.point, key: draft.key } })
+      const view = scroller.current
+      if (view && draft.point.y + 180 > view.scrollTop + view.clientHeight) {
+        view.scrollTop = Math.max(0, draft.point.y - 20)
+      }
+    }
+  }
+
+  async function deleteNote() {
+    if (draft?.note) await boardRequest(path + '/notes/' + draft.note.recordId, { method: 'DELETE' })
+  }
+
+  async function moveNote(id: string, point: Point) {
+    setError('')
+    setPendingMoves((current) => ({ ...current, [id]: point }))
+    try {
+      await boardRequest(path + '/notes/' + id, { method: 'PATCH', data: point })
+      return true
+    } catch (failure) {
+      setPendingMoves((current) => {
+        if (current[id] !== point) return current
+        const next = { ...current }
+        delete next[id]
+        return next
+      })
+      setError(failure instanceof Error ? failure.message : 'Could not move the note.')
+      return false
+    } finally {
+      // The subscribed data normally arrives before this timer. Clear any
+      // lingering draft overlay so a collaborator's movement always wins.
+      window.setTimeout(() => {
+        setPendingMoves((current) => {
+          if (current[id] !== point) return current
+          const next = { ...current }
+          delete next[id]
+          return next
+        })
+      }, 900)
+    }
+  }
+
+  async function copyLink() {
+    try {
+      await navigator.clipboard.writeText(shareUrl)
+      setCopied(true)
+    } catch {
+      const input = document.querySelector<HTMLInputElement>('#spaceboard-share-link')
+      input?.focus()
+      input?.select()
+    }
+  }
+
+  async function summarize() {
+    if (summaryRequest.current) return
+    const request = new AbortController()
+    summaryRequest.current = request
+    setSummary(undefined)
+    setSummaryError('')
+    setSummaryBusy(true)
+    try {
+      const result = await boardRequest<BoardSummary>(path + '/summary', { method: 'POST', signal: request.signal })
+      if (!request.signal.aborted) setSummary(result)
+    } catch (failure) {
+      if (!request.signal.aborted) setSummaryError(failure instanceof Error ? failure.message : 'Could not summarize board.')
+    } finally {
+      if (summaryRequest.current === request) {
+        summaryRequest.current = null
+        setSummaryBusy(false)
+      }
+    }
+  }
+
+  const roomText = status === 'error' ? 'Sync unavailable' : editable ? 'Live' : 'Connecting…'
+  const boardIsEmpty = status === 'ready' && records.length === 0
 
   return (
-    <BoardCanvasLayout
-      title={board.data.title}
-      notes={notes.records}
-      getAuthorName={(id) => getName(id) ?? 'Unknown author'}
-    />
-  )
-}
-
-interface BoardCanvasLayoutProps {
-  title: string
-  notes?: readonly Note[]
-  getAuthorName?: (id: string) => string
-}
-
-const control = 'border-slate-200 bg-white text-slate-700 shadow-none disabled:opacity-65'
-const primary = 'bg-indigo-600 text-white disabled:bg-indigo-600 disabled:opacity-70'
-
-export function BoardCanvasLayout({ title, notes = [], getAuthorName }: BoardCanvasLayoutProps) {
-  return (
-    <section
-      aria-label={title}
-      className="flex min-h-[32rem] flex-1 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white text-slate-950 shadow-sm"
-    >
-      <header className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 px-5 py-4 sm:px-7">
+    <section aria-label={board.title} className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white text-slate-950 shadow-sm">
+      <title>{board.title + ' | SpaceBoard'}</title>
+      <header className="flex flex-wrap items-end justify-between gap-3 border-b border-slate-200 px-4 py-4 sm:px-6">
         <div className="min-w-0">
-          <p className="text-xs font-semibold text-indigo-700">SpaceBoard</p>
-          <h1 className="mt-0.5 break-words text-2xl font-semibold tracking-tight">{title}</h1>
+          <Link to="/home" className="mb-1 inline-flex items-center gap-1.5 text-xs font-semibold text-indigo-700 hover:underline">
+            <ArrowLeft className="size-3.5" aria-hidden="true" /> Boards
+          </Link>
+          <h1 className="break-words text-2xl font-semibold tracking-tight">{board.title}</h1>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" className={control} disabled>
+          <Button variant="outline" size="sm" className={control} disabled={!records.length} onClick={() => { setSummaryOpen(true); if (!summary && !summaryError) void summarize() }}>
             <Sparkles aria-hidden="true" /> Summarize board
           </Button>
-          <Button size="sm" className={primary} disabled>
+          <Button size="sm" className={primary} onClick={() => { setShareOpen(true); setCopied(false) }}>
             <Link2 aria-hidden="true" /> Share
           </Button>
         </div>
       </header>
 
-      <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-5 py-2 sm:px-7">
-        <Button variant="outline" size="sm" className={control} disabled>
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-4 py-2 sm:px-6">
+        <Button variant="outline" size="sm" className={control} disabled={!canAdd} onClick={addNote}>
           <Plus aria-hidden="true" /> Add note
         </Button>
-        <p className="text-sm tabular-nums text-slate-600">
-          {notes.length} {notes.length === 1 ? 'note' : 'notes'}
-        </p>
+        <div className="flex flex-wrap items-center gap-4 text-xs font-medium text-slate-600">
+          <span>{records.length} {records.length === 1 ? 'note' : 'notes'}</span>
+          {connected && <span title={peers.map((peer) => peer.userName).join(', ')} className="inline-flex items-center gap-1.5"><Users className="size-4" aria-hidden="true" /> {peers.length + 1} here</span>}
+          <span role="status" className="inline-flex items-center gap-1.5">
+            <span className={'size-2 rounded-full ' + (editable ? 'bg-emerald-600' : 'bg-amber-500')} aria-hidden="true" /> {roomText}
+          </span>
+        </div>
       </div>
+      {error && <p role="alert" className="border-b border-rose-100 bg-rose-50 px-4 py-2 text-sm text-rose-800">{error}</p>}
 
-      <div className="relative isolate grid flex-1 overflow-auto bg-[#f8f8fc] bg-[radial-gradient(#cdd1e4_1px,transparent_1px)] bg-size-[20px_20px]">
-        {notes.length === 0 ? (
-          <div className="grid place-items-center p-6">
-            <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm">
-              <div className="mx-auto grid size-12 place-items-center rounded-xl bg-indigo-50 text-indigo-700">
+      <div className="relative min-h-60 flex-1 overflow-hidden bg-[#f8f8fc]">
+        <div ref={scroller} className="absolute inset-0 overflow-auto" aria-label="Canvas" tabIndex={0}>
+          <div
+            ref={surface}
+            className="relative isolate overflow-hidden bg-[radial-gradient(#cdd1e4_1px,transparent_1px)] bg-size-[20px_20px]"
+            style={boardIsEmpty ? { width: '100%', height: '100%' } : { width: CANVAS_WIDTH, height: CANVAS_HEIGHT }}
+            onPointerMove={trackCursor}
+            onPointerLeave={() => { if (connected) updateState({ cursor: null }) }}
+          >
+            {records.map((note) => (
+              <StickyCard
+                key={note.recordId}
+                note={pendingMoves[note.recordId] ? { ...note, data: { ...note.data, ...pendingMoves[note.recordId] } } : note}
+                author={getName(note.createdBy) ?? 'Collaborator'}
+                editable={editable}
+                onEdit={editNote}
+                onMove={moveNote}
+              />
+            ))}
+            {peers.map((peer) => {
+              const cursor = readCursor(peer.state.cursor)
+              if (!cursor) return null
+              const color = getUserColor(peer.userId, cursorColors)
+              return (
+                <div key={peer.userId} aria-hidden="true" className="pointer-events-none absolute z-30 flex items-start gap-1" style={{ left: cursor.x, top: cursor.y, color }}>
+                  <svg width="15" height="19" viewBox="0 0 15 19" fill="currentColor" aria-hidden="true"><path d="M1 1v16l4-4 3 5 3-2-3-5h6Z" /></svg>
+                  <span className="mt-3 max-w-32 truncate rounded-md px-1.5 py-0.5 text-xs font-semibold text-white" style={{ background: color }}>{peer.userName}</span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+        {(boardIsEmpty || status !== 'ready') && (
+          <div className="pointer-events-none absolute inset-0 grid place-items-center p-5">
+            <div className="pointer-events-auto w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm sm:p-8">
+              <div className="mx-auto grid size-11 place-items-center rounded-xl bg-indigo-50 text-indigo-700">
                 <StickyNote className="size-6" strokeWidth={1.5} aria-hidden="true" />
               </div>
-              <h2 className="mt-5 text-2xl font-semibold tracking-tight">Start with an idea</h2>
-              <p className="mb-5 mt-2 text-sm leading-relaxed text-slate-600">
-                Add a sticky note to start brainstorming.
-              </p>
-              <Button className={primary} disabled>
-                <Plus aria-hidden="true" /> Add first note
-              </Button>
+              <h2 className="mt-4 text-xl font-semibold tracking-tight">
+                {boardIsEmpty ? 'Start with an idea' : status === 'error' ? 'Couldn’t load notes' : 'Opening the canvas'}
+              </h2>
+              {boardIsEmpty ? (
+                <>
+                  <p className="mb-4 mt-2 text-sm text-slate-600">Add a sticky note to start the brainstorm.</p>
+                  <Button className={primary} disabled={!canAdd} onClick={addNote}><Plus aria-hidden="true" /> Add first note</Button>
+                </>
+              ) : status === 'error' && <p className="mt-2 text-sm text-slate-600">Refresh the page to reconnect.</p>}
             </div>
           </div>
-        ) : (
-          notes.map(({ recordId, data, createdBy }) => (
-            <article
-              key={recordId}
-              className={cn('absolute w-52 rounded-xl p-4 shadow-sm', noteColors[data.color])}
-              style={{ left: data.x, top: data.y }}
-            >
-              <p className="whitespace-pre-wrap [overflow-wrap:anywhere] text-sm">{data.markdown}</p>
-              <p className="mt-4 text-xs font-medium text-slate-700">
-                {getAuthorName?.(createdBy) ?? 'Unknown author'}
-              </p>
-            </article>
-          ))
         )}
       </div>
+
+      {draft && <NoteComposer key={draft.key} note={draft.note} onClose={() => setDraft(undefined)} onSave={saveNote} onDelete={deleteNote} />}
+      <Dialog open={shareOpen} onOpenChange={setShareOpen}>
+        <DialogContent className="border-slate-200 bg-white text-slate-950">
+          <DialogTitle>Share board</DialogTitle>
+          <DialogDescription className="text-slate-600">Anyone signed in with this link can open and edit the board.</DialogDescription>
+          <label htmlFor="spaceboard-share-link" className="sr-only">Board link</label>
+          <input id="spaceboard-share-link" readOnly value={shareUrl} onFocus={(event) => event.currentTarget.select()} className="min-w-0 rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+          <Button className={primary} onClick={() => void copyLink()}>
+            {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />} {copied ? 'Copied' : 'Copy link'}
+          </Button>
+          <span role="status" className="sr-only">{copied ? 'Board link copied' : ''}</span>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={summaryOpen} onOpenChange={setSummaryOpen}>
+        <DialogContent className="max-h-[85dvh] overflow-auto border-slate-200 bg-white text-slate-950">
+          <DialogTitle>Board summary</DialogTitle>
+          <DialogDescription className="text-slate-600">Themes and possible next steps from the current notes.</DialogDescription>
+          {summaryBusy && <p role="status" className="rounded-xl bg-indigo-50 p-4 text-sm font-medium text-indigo-900">Reading notes…</p>}
+          {summaryError && <p role="alert" className="rounded-xl bg-rose-50 p-4 text-sm text-rose-800">{summaryError}</p>}
+          {summary && (
+            <>
+              <p className="text-xs font-medium text-slate-600">Based on {summary.included} of {summary.total} notes</p>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm leading-relaxed">
+                <BoardMarkdown source={summary.summary} />
+              </div>
+            </>
+          )}
+          {(summary || summaryError) && <Button variant="outline" className={control} onClick={() => void summarize()} disabled={summaryBusy}>Generate again</Button>}
+        </DialogContent>
+      </Dialog>
     </section>
   )
 }
