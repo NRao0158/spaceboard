@@ -46,6 +46,22 @@ export default defineConfig({
       },
     }),
   ],
+  environments: {
+    client: {
+      build: {
+        rolldownOptions: {
+          output: {
+            codeSplitting: {
+              groups: [
+                // Keep React cacheable across interface-only releases.
+                { name: 'react-vendor', test: /[\\/]node_modules[\\/](?:react|react-dom|scheduler)[\\/]/ },
+              ],
+            },
+          },
+        },
+      },
+    },
+  },
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),

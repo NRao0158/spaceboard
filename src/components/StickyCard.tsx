@@ -96,7 +96,7 @@ export function StickyCard({ note, author, editable, onEdit, onMove }: StickyCar
     <article
       data-note-id={recordId}
       className={cn(
-        'absolute flex min-h-36 flex-col rounded-2xl border text-slate-900 shadow-sm focus-within:z-10 hover:z-10',
+        'sb-sticky-note absolute flex min-h-36 flex-col rounded-2xl border text-slate-900 shadow-sm focus-within:z-10 hover:z-10',
         colors[data.color],
         position && 'z-20 shadow-lg',
       )}

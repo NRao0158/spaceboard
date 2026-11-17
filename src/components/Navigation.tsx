@@ -11,10 +11,11 @@
 import { useState, useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { AuthOverlay, useAuthProfileReady, signOut } from 'deepspace'
-import { ChevronDown, LogOut, Menu, X } from 'lucide-react'
+import { ChevronDown, LogOut, Menu, StickyNote, X } from 'lucide-react'
 import { APP_NAME } from '../constants'
 import type { Role } from '../constants'
 import { nav } from '../nav'
+import { CommandPalette } from './CommandPalette'
 import { cn } from '../lib/utils'
 import {
   Avatar,
@@ -58,7 +59,7 @@ export default function Navigation() {
         to={item.path}
         aria-current={active ? 'page' : undefined}
         className={cn(
-          'px-3 py-1.5 text-sm',
+          'sb-nav-link px-3 py-1.5 text-sm',
           active ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
         )}
       >
@@ -69,15 +70,16 @@ export default function Navigation() {
 
   return (
     <>
-      <nav data-testid="app-navigation" className="border-b border-border bg-background">
-        <div className="mx-auto flex h-12 max-w-7xl items-center gap-4 px-4">
-          <Link to="/home" className="text-sm font-semibold text-foreground">
-            {APP_NAME}
+      <nav data-testid="app-navigation" className="sb-glass-nav shrink-0">
+        <div className="mx-auto flex min-h-[3.65rem] max-w-7xl items-center gap-2 px-3 sm:gap-3 sm:px-5">
+          <Link to="/home" className="sb-wordmark">
+            <span className="sb-brand-mark"><StickyNote size={16} aria-hidden="true" /></span>{APP_NAME}
           </Link>
 
           <div className="hidden items-center md:flex">{visibleNav.map(navLink)}</div>
 
           <div className="flex-1" />
+          <CommandPalette navigation={visibleNav} />
 
           {!isLoaded ? null : isSignedIn && !profileReady ? (
             /* Signed in, profile still loading — skeleton pill, never the
@@ -136,7 +138,7 @@ export default function Navigation() {
             <button
               data-testid="nav-sign-in-button"
               onClick={() => setShowAuthModal(true)}
-              className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90"
+              className="sb-button-primary whitespace-nowrap rounded-lg px-2.5 py-1.5 text-sm font-semibold"
             >
               Sign in
             </button>
@@ -159,7 +161,7 @@ export default function Navigation() {
         )}
       </nav>
 
-      {showAuthModal && <AuthOverlay onClose={() => setShowAuthModal(false)} />}
+      {showAuthModal && <AuthOverlay title="Sign in to SpaceBoard" description="Create a board or join one someone shared." onClose={() => setShowAuthModal(false)} />}
     </>
   )
 }

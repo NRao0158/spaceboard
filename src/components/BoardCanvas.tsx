@@ -5,6 +5,7 @@ import { Link } from 'react-router-dom'
 import { BoardMarkdown } from './BoardMarkdown'
 import { NoteComposer } from './NoteComposer'
 import { StickyCard } from './StickyCard'
+import { Magnetic } from './SurfaceEffects'
 import { Button, Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui'
 import { boardPath, boardRequest, type BoardSummary } from '@/lib/board-api'
 import {
@@ -13,8 +14,8 @@ import {
 } from '@/schemas/board-schema'
 
 type Draft = { key: string; point: Point; note?: Note }
-const control = 'border-slate-300 bg-white text-slate-800 shadow-none hover:bg-slate-100'
-const primary = 'bg-indigo-700 text-white hover:bg-indigo-800'
+const control = 'sb-button-secondary shadow-none'
+const primary = 'sb-button-primary'
 const cursorColors = ['#4338ca', '#047857', '#a21caf', '#b45309', '#0e7490']
 
 function readCursor(value: unknown): Point | null {
@@ -168,9 +169,9 @@ export function BoardCanvas({ board }: { board: BoardDetails }) {
   const boardIsEmpty = status === 'ready' && records.length === 0
 
   return (
-    <section aria-label={board.title} className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white text-slate-950 shadow-sm">
+    <section aria-label={board.title} className="sb-board-frame flex min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border bg-white text-slate-950">
       <title>{board.title + ' | SpaceBoard'}</title>
-      <header className="flex flex-wrap items-end justify-between gap-3 border-b border-slate-200 px-4 py-4 sm:px-6">
+      <header className="sb-board-header flex flex-wrap items-end justify-between gap-3 border-b border-slate-200 px-4 py-4 sm:px-6">
         <div className="min-w-0">
           <Link to="/home" className="mb-1 inline-flex items-center gap-1.5 text-xs font-semibold text-indigo-700 hover:underline">
             <ArrowLeft className="size-3.5" aria-hidden="true" /> Boards
@@ -187,14 +188,14 @@ export function BoardCanvas({ board }: { board: BoardDetails }) {
         </div>
       </header>
 
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-4 py-2 sm:px-6">
+      <div className="sb-board-toolbar flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-4 py-2 sm:px-6">
         <Button variant="outline" size="sm" className={control} disabled={!canAdd} onClick={addNote}>
           <Plus aria-hidden="true" /> Add note
         </Button>
         <div className="flex flex-wrap items-center gap-4 text-xs font-medium text-slate-600">
           <span>{records.length} {records.length === 1 ? 'note' : 'notes'}</span>
-          {connected && <span title={peers.map((peer) => peer.userName).join(', ')} className="inline-flex items-center gap-1.5"><Users className="size-4" aria-hidden="true" /> {peers.length + 1} here</span>}
-          <span role="status" className="inline-flex items-center gap-1.5">
+          {connected && <span title={peers.map((peer) => peer.userName).join(', ')} className="sb-state-badge"><Users className="size-4" aria-hidden="true" /> {peers.length + 1} here</span>}
+          <span role="status" className="sb-state-badge">
             <span className={'size-2 rounded-full ' + (editable ? 'bg-emerald-600' : 'bg-amber-500')} aria-hidden="true" /> {roomText}
           </span>
         </div>
@@ -205,7 +206,7 @@ export function BoardCanvas({ board }: { board: BoardDetails }) {
         <div ref={scroller} className="absolute inset-0 overflow-auto" aria-label="Canvas" tabIndex={0}>
           <div
             ref={surface}
-            className="relative isolate overflow-hidden bg-[radial-gradient(#cdd1e4_1px,transparent_1px)] bg-size-[20px_20px]"
+            className="sb-board-grid relative isolate overflow-hidden"
             style={boardIsEmpty ? { width: '100%', height: '100%' } : { width: CANVAS_WIDTH, height: CANVAS_HEIGHT }}
             onPointerMove={trackCursor}
             onPointerLeave={() => { if (connected) updateState({ cursor: null }) }}
@@ -235,7 +236,7 @@ export function BoardCanvas({ board }: { board: BoardDetails }) {
         </div>
         {(boardIsEmpty || status !== 'ready') && (
           <div className="pointer-events-none absolute inset-0 grid place-items-center p-5">
-            <div className="pointer-events-auto w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm sm:p-8">
+            <div className="sb-board-empty pointer-events-auto w-full max-w-sm rounded-2xl bg-white p-6 text-center sm:p-8">
               <div className="mx-auto grid size-11 place-items-center rounded-xl bg-indigo-50 text-indigo-700">
                 <StickyNote className="size-6" strokeWidth={1.5} aria-hidden="true" />
               </div>
@@ -245,9 +246,13 @@ export function BoardCanvas({ board }: { board: BoardDetails }) {
               {boardIsEmpty ? (
                 <>
                   <p className="mb-4 mt-2 text-sm text-slate-600">Add a sticky note to start the brainstorm.</p>
-                  <Button className={primary} disabled={!canAdd} onClick={addNote}><Plus aria-hidden="true" /> Add first note</Button>
+                  <Magnetic><Button className={primary} disabled={!canAdd} onClick={addNote}><Plus aria-hidden="true" /> Add first note</Button></Magnetic>
                 </>
-              ) : status === 'error' && <p className="mt-2 text-sm text-slate-600">Refresh the page to reconnect.</p>}
+              ) : status === 'error' ? (
+                <p className="mt-2 text-sm text-slate-600">Refresh the page to reconnect.</p>
+              ) : (
+                <span className="sb-loading-dots mt-3" aria-hidden="true"><i /><i /><i /></span>
+              )}
             </div>
           </div>
         )}

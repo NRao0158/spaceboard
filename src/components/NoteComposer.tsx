@@ -1,5 +1,5 @@
 import { Check, Trash2 } from 'lucide-react'
-import { useState, type FormEvent } from 'react'
+import { useId, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { BoardMarkdown } from './BoardMarkdown'
 import { Button, Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui'
 import { MAX_NOTE_LENGTH, NOTE_COLORS, type Note, type NoteFields } from '@/schemas/board-schema'
@@ -19,6 +19,9 @@ export function NoteComposer({ note, onClose, onSave, onDelete }: NoteComposerPr
   const [markdown, setMarkdown] = useState(note?.data.markdown ?? '')
   const [color, setColor] = useState<NoteFields['color']>(note?.data.color ?? 'lemon')
   const [preview, setPreview] = useState(false)
+  const tabPrefix = useId()
+  const textTab = useRef<HTMLButtonElement>(null)
+  const previewTab = useRef<HTMLButtonElement>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -42,28 +45,36 @@ export function NoteComposer({ note, onClose, onSave, onDelete }: NoteComposerPr
     if (markdown.trim()) void run(() => onSave({ markdown, color }))
   }
 
+  function selectTab(event: KeyboardEvent<HTMLDivElement>) {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+    event.preventDefault()
+    const next = event.key === 'Home' ? false : event.key === 'End' ? true : !preview
+    setPreview(next)
+    const selected = next ? previewTab : textTab
+    selected.current?.focus()
+  }
+
   return (
     <Dialog open onOpenChange={(open) => { if (!open && !busy) onClose() }}>
-      <DialogContent className="max-h-[90dvh] overflow-auto border-slate-200 bg-white text-slate-950">
+      <DialogContent className="sb-note-dialog max-h-[90dvh] overflow-auto border-slate-200 bg-white text-slate-950">
         <DialogTitle>{note ? 'Edit note' : 'Add a sticky note'}</DialogTitle>
         <DialogDescription className="text-slate-600">Use Markdown for headings, lists, links, and formatting.</DialogDescription>
         <form onSubmit={submit} className="grid gap-4">
           <div>
-            <div className="mb-1 flex items-center justify-between gap-2">
-              <label htmlFor="sticky-text" className="text-sm font-medium">Note</label>
-              <button type="button" aria-pressed={preview} onClick={() => setPreview(!preview)} className="text-sm font-semibold text-indigo-700 underline-offset-4 hover:underline">
-                {preview ? 'Edit text' : 'Preview Markdown'}
-              </button>
+            <div role="tablist" aria-label="Note editor mode" onKeyDown={selectTab} className="sb-note-tabs" data-preview={preview}>
+              <button ref={textTab} id={tabPrefix + '-edit'} role="tab" type="button" aria-controls={tabPrefix + '-editor'} aria-selected={!preview} tabIndex={preview ? -1 : 0} onClick={() => setPreview(false)}>Edit text</button>
+              <button ref={previewTab} id={tabPrefix + '-view'} role="tab" type="button" aria-controls={tabPrefix + '-preview'} aria-selected={preview} tabIndex={preview ? 0 : -1} onClick={() => setPreview(true)}>Preview Markdown</button>
             </div>
-            {preview ? (
-              <div id="sticky-text" aria-label="Markdown preview" className="min-h-36 rounded-xl border border-slate-300 bg-slate-50 p-3 text-sm">
-                {markdown.trim() ? <BoardMarkdown source={markdown} /> : 'Add some text to preview it.'}
-              </div>
-            ) : (
-              <textarea id="sticky-text" rows={5} required maxLength={MAX_NOTE_LENGTH} value={markdown} onChange={(e) => setMarkdown(e.target.value)}
-                className="w-full resize-y rounded-xl border border-slate-300 p-3 text-sm focus-visible:outline-2 focus-visible:outline-indigo-600"
+            <div id={tabPrefix + '-editor'} role="tabpanel" aria-labelledby={tabPrefix + '-edit'} hidden={preview}>
+              <label htmlFor="sticky-text" className="sr-only">Note</label>
+              <textarea id="sticky-text" rows={5} required={!preview} maxLength={MAX_NOTE_LENGTH} value={markdown} onChange={(e) => setMarkdown(e.target.value)}
+                className="sb-field w-full resize-y"
                 placeholder="What’s on your mind?" />
-            )}
+            </div>
+            <div id={tabPrefix + '-preview'} role="tabpanel" aria-labelledby={tabPrefix + '-view'} hidden={!preview}
+              tabIndex={preview ? 0 : -1} className="min-h-36 rounded-xl border border-slate-300 bg-slate-50 p-3 text-sm">
+              {preview && (markdown.trim() ? <BoardMarkdown source={markdown} /> : 'Add some text to preview it.')}
+            </div>
           </div>
           <fieldset>
             <legend className="mb-1 text-sm font-medium">Color</legend>
@@ -81,14 +92,14 @@ export function NoteComposer({ note, onClose, onSave, onDelete }: NoteComposerPr
           {confirmDelete ? (
             <div className="flex flex-wrap items-center justify-end gap-2">
               <span className="mr-auto text-sm font-medium text-rose-700">Delete this note for everyone?</span>
-              <Button variant="outline" className="bg-white text-slate-800" disabled={busy} onClick={() => setConfirmDelete(false)}>Keep note</Button>
+              <Button variant="outline" className="sb-button-secondary" disabled={busy} onClick={() => setConfirmDelete(false)}>Keep note</Button>
               <Button variant="destructive" loading={busy} onClick={() => void run(onDelete)}>Delete</Button>
             </div>
           ) : (
             <div className="flex flex-wrap justify-end gap-2">
               {note && <Button variant="ghost" className="mr-auto text-rose-700" disabled={busy} onClick={() => setConfirmDelete(true)}><Trash2 aria-hidden="true" /> Delete note</Button>}
-              <Button variant="outline" className="bg-white text-slate-800" disabled={busy} onClick={onClose}>Cancel</Button>
-              <Button className="bg-indigo-700 text-white hover:bg-indigo-800" type="submit" loading={busy} disabled={!markdown.trim()}>
+              <Button variant="outline" className="sb-button-secondary" disabled={busy} onClick={onClose}>Cancel</Button>
+              <Button className="sb-button-primary" type="submit" loading={busy} disabled={!markdown.trim()}>
                 {note ? 'Save changes' : 'Add note'}
               </Button>
             </div>

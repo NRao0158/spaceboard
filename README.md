@@ -22,6 +22,8 @@ npm run test:unit
 npm run build
 ```
 
+Press `Ctrl+K` or `Cmd+K` in the workspace to find a recent board or jump to creating or joining one.
+
 ## Share and summarize
 
 Everyone who signs in and has the board link can edit its notes. Share the URL only with people who should be able to edit. Open a board in two browser sessions signed in as different users to check live edits, movement, and cursors. Drag a note by its handle or move a focused handle with the arrow keys.

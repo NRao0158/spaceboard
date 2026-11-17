@@ -1,18 +1,23 @@
 import { AuthOverlay, useAuth } from 'deepspace'
 import { ArrowRight, Link2, Plus, StickyNote } from 'lucide-react'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Button } from '@/components/ui'
+import { Magnetic, PaperSurface } from '@/components/SurfaceEffects'
 import {
   boardPath, boardRequest, readRecentBoards, rememberBoardAfterSignIn, rememberRecentBoard, takeBoardAfterSignIn,
 } from '@/lib/board-api'
 import { MAX_BOARD_TITLE, boardIdFromPath, boardIdSchema, type BoardDetails } from '@/schemas/board-schema'
 
-const inputStyle = 'min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none focus-visible:ring-2 focus-visible:ring-indigo-600'
+const inputStyle = 'sb-field flex-1'
 
 export default function HomePage() {
   const { isSignedIn, userId } = useAuth()
   const navigate = useNavigate()
+  const [params, setParams] = useSearchParams()
+  const titleInput = useRef<HTMLInputElement>(null)
+  const linkInput = useRef<HTMLInputElement>(null)
+  const signInButton = useRef<HTMLButtonElement>(null)
   const [showAuth, setShowAuth] = useState(false)
   const [title, setTitle] = useState('')
   const [link, setLink] = useState('')
@@ -28,6 +33,21 @@ export default function HomePage() {
     const id = takeBoardAfterSignIn()
     if (id) void navigate(boardPath(id), { replace: true })
   }, [signedIn, navigate])
+
+  useEffect(() => {
+    const focus = params.get('focus')
+    if (focus !== 'create' && focus !== 'join') return
+    const target = focus === 'join' ? linkInput.current : signedIn ? titleInput.current : signInButton.current
+    if (!target) return
+    // The palette closes in this navigation. Focus after its focus restoration.
+    const frame = requestAnimationFrame(() => {
+      target.focus()
+      const remaining = new URLSearchParams(params)
+      remaining.delete('focus')
+      setParams(remaining, { replace: true })
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [params, setParams, signedIn])
 
   async function create(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -74,43 +94,45 @@ export default function HomePage() {
   }
 
   return (
-    <div className="min-h-full bg-[#f6f6fb] text-slate-950">
-      <div className="mx-auto max-w-5xl px-5 py-12 sm:px-9 sm:py-16">
-        <div className="mb-9 max-w-2xl">
-          <div className="mb-5 grid size-12 place-items-center rounded-xl bg-indigo-600 text-white shadow-md shadow-indigo-200">
+    <div className="sb-dashboard">
+      <div className="sb-dashboard-shell">
+        <div className="sb-dashboard-heading max-w-2xl">
+          <div className="sb-brand-mark mb-4">
             <StickyNote className="size-6" aria-hidden="true" />
           </div>
-          <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">Your boards</h1>
-          <p className="mt-3 text-base text-slate-600">Start a brainstorm or jump into one someone shared with you.</p>
+          <h1>Your boards</h1>
+          <p>Start a brainstorm or jump into one someone shared with you.</p>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-2">
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-            <h2 className="text-lg font-semibold">Create a board</h2>
+        <div className="sb-dashboard-actions">
+          <section className="sb-dashboard-card sb-dashboard-card--create">
+            <h2 className="sb-dashboard-card-heading"><Plus size={19} aria-hidden="true" /> Create a board</h2>
             {signedIn ? (
               <form onSubmit={create} className="mt-3">
                 <label htmlFor="board-title" className="mb-1 block text-sm font-medium text-slate-700">Board name</label>
                 <div className="flex flex-wrap gap-2">
-                  <input id="board-title" className={inputStyle} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Project kickoff" maxLength={MAX_BOARD_TITLE} required />
-                  <Button className="bg-indigo-700 text-white hover:bg-indigo-800" loading={busy} disabled={!title.trim()} type="submit">
-                    <Plus aria-hidden="true" /> Create
-                  </Button>
+                  <input ref={titleInput} id="board-title" className={inputStyle} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Project kickoff" maxLength={MAX_BOARD_TITLE} required />
+                  <Magnetic>
+                    <Button className="sb-button-primary" loading={busy} disabled={!title.trim()} type="submit">
+                      <Plus aria-hidden="true" /> Create
+                    </Button>
+                  </Magnetic>
                 </div>
                 {createError && <p role="alert" className="mt-3 text-sm text-rose-700">{createError}</p>}
               </form>
             ) : (
-              <Button className="mt-4 bg-indigo-700 text-white hover:bg-indigo-800" onClick={() => setShowAuth(true)}>
+              <Button ref={signInButton} className="sb-button-primary mt-4" onClick={() => setShowAuth(true)}>
                 Sign in to get started
               </Button>
             )}
           </section>
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-            <h2 className="text-lg font-semibold">Open a shared board</h2>
+          <section className="sb-dashboard-card">
+            <h2 className="sb-dashboard-card-heading"><Link2 size={19} aria-hidden="true" /> Open a shared board</h2>
             <form onSubmit={openLink} className="mt-3">
               <label htmlFor="board-link" className="mb-1 block text-sm font-medium text-slate-700">Board link</label>
               <div className="flex flex-wrap gap-2">
-                <input id="board-link" className={inputStyle} value={link} onChange={(e) => setLink(e.target.value)} placeholder="Paste a board link" required />
-                <Button variant="outline" className="border-slate-300 bg-white text-slate-800" type="submit"><Link2 aria-hidden="true" /> Open</Button>
+                <input ref={linkInput} id="board-link" className={inputStyle} value={link} onChange={(e) => setLink(e.target.value)} placeholder="Paste a board link" required />
+                <Button variant="outline" className="sb-button-secondary" type="submit"><Link2 aria-hidden="true" /> Open</Button>
               </div>
               {linkError && <p role="alert" className="mt-3 text-sm text-rose-700">{linkError}</p>}
             </form>
@@ -123,11 +145,13 @@ export default function HomePage() {
             <ul className="grid gap-2 sm:grid-cols-2">
               {recent.map(({ id, title }) => (
                 <li key={id}>
-                  <Link to={boardPath(id)} className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-4 hover:border-indigo-400 focus-visible:outline-2 focus-visible:outline-indigo-600">
-                    <StickyNote className="size-5 shrink-0 text-indigo-600" aria-hidden="true" />
-                    <span className="min-w-0 flex-1 truncate font-medium">{title}</span>
-                    <ArrowRight className="size-4 shrink-0 text-slate-500" aria-hidden="true" />
-                  </Link>
+                  <PaperSurface className="sb-recent-card">
+                    <Link to={boardPath(id)} className="sb-recent-link">
+                      <span className="sb-recent-icon"><StickyNote size={17} aria-hidden="true" /></span>
+                      <span className="min-w-0 flex-1 truncate font-semibold">{title}</span>
+                      <ArrowRight className="size-4 shrink-0 text-indigo-700" aria-hidden="true" />
+                    </Link>
+                  </PaperSurface>
                 </li>
               ))}
             </ul>

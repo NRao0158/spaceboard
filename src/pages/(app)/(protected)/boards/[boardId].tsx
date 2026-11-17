@@ -38,7 +38,7 @@ function OpenBoard({ id }: { id: string }) {
   if (!board) return <p role="status" className="p-8 text-sm text-slate-600">Opening board…</p>
 
   return (
-    <div className="flex h-full min-h-[29rem] bg-[#f6f6fb] p-3 sm:p-5">
+    <div className="sb-board-page flex h-full min-h-[29rem] p-3 sm:p-5">
       <RecordScope roomId={boardRoomId(id)} schemas={boardSchemas} isolated>
         <BoardCanvas board={board} />
       </RecordScope>

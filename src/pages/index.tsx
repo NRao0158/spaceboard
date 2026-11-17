@@ -1,51 +1,111 @@
-import { ArrowRight, StickyNote } from 'lucide-react'
+import { ArrowDown, ArrowRight, MousePointer2, Sparkles, StickyNote } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { Seo } from '../components/Seo'
+import { Magnetic, PaperSurface } from '@/components/SurfaceEffects'
+import { useScrollReveal } from '@/lib/surface-motion'
 import { seo } from '../seo'
 
+function WorkspaceLink({ className }: { className?: string }) {
+  return (
+    <Magnetic className={className}>
+      <Link to="/home" className="sb-action sb-action--lilac">
+        Open workspace <ArrowRight size={17} aria-hidden="true" />
+      </Link>
+    </Magnetic>
+  )
+}
+
 export default function Landing() {
+  const sections = useScrollReveal()
+
   return (
     <>
       <Seo {...seo} path="/" />
-      <main data-testid="static-landing" className="min-h-dvh bg-[#f6f6fb] text-slate-950">
-        <div className="mx-auto grid min-h-dvh max-w-6xl items-center gap-12 px-6 py-14 md:grid-cols-[1fr_0.95fr] lg:px-12">
-          <div className="max-w-xl">
-            <div className="mb-7 flex items-center gap-3 text-lg font-semibold tracking-tight">
-              <span className="grid size-11 place-items-center rounded-xl bg-indigo-700 text-white"><StickyNote className="size-6" aria-hidden="true" /></span>
-              SpaceBoard
-            </div>
-            <h1 className="text-balance text-5xl font-semibold leading-[1.04] tracking-tight sm:text-6xl">
-              A shared canvas for your next brainstorm
-            </h1>
-            <p className="mt-5 max-w-lg text-lg leading-relaxed text-slate-600">
-              Capture ideas on sticky notes, share the board, and turn the discussion into a short summary.
-            </p>
-            <Link
-              to="/home"
-              className="mt-7 inline-flex items-center gap-2 rounded-lg bg-indigo-700 px-5 py-3 font-semibold text-white hover:bg-indigo-800 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-indigo-700"
-            >
-              Open SpaceBoard <ArrowRight className="size-4" aria-hidden="true" />
+      <main ref={sections} data-testid="static-landing" className="sb-landing">
+        <div className="sb-hero">
+          <header className="sb-landing-nav">
+            <Link to="/" aria-label="SpaceBoard home" className="sb-wordmark">
+              <span className="sb-brand-mark"><StickyNote size={20} aria-hidden="true" /></span>SpaceBoard
             </Link>
-          </div>
+            <div className="sb-landing-nav-actions">
+              <a href="#how-it-works" className="sb-nav-text">How it works</a>
+              <WorkspaceLink />
+            </div>
+          </header>
 
-          <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-lg shadow-indigo-950/8" aria-hidden="true">
-            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
-              <span className="font-semibold">Project kickoff</span>
-              <span className="inline-flex items-center gap-2 text-sm font-medium text-slate-600"><span className="size-2 rounded-full bg-emerald-600" /> Live</span>
-            </div>
-            <div className="grid min-h-64 grid-cols-2 content-center gap-3 bg-[#fbfaff] bg-[radial-gradient(#cdd1e4_1px,transparent_1px)] bg-size-[18px_18px] px-4 py-6 sm:gap-4 sm:p-6">
-              <div className="rounded-xl border border-amber-200 bg-[#fff1ac] p-3 text-sm leading-relaxed shadow-sm sm:p-4">
-                <strong>What should we try?</strong><p className="mt-2">Start with a small experiment.</p>
-              </div>
-              <div className="rounded-xl border border-emerald-200 bg-[#caf0df] p-3 text-sm leading-relaxed shadow-sm sm:p-4">
-                <strong>What will we measure?</strong><p className="mt-2">See what people find useful.</p>
-              </div>
-              <div className="col-start-1 rounded-xl border border-violet-200 bg-[#e8ddff] p-3 text-sm leading-relaxed shadow-sm sm:p-4">
-                <strong>Next step</strong><p className="mt-2">Compare findings on Friday.</p>
+          <div className="sb-hero-layout">
+            <div className="sb-hero-copy">
+              <h1 data-sb-reveal>Make room<br />for <span>ideas.</span></h1>
+              <p data-sb-reveal>A shared canvas to collect ideas, think together, and leave with a next step.</p>
+              <div className="sb-hero-actions" data-sb-reveal>
+                <WorkspaceLink />
+                <a href="#how-it-works" className="sb-explore">See how it works <ArrowDown size={16} aria-hidden="true" /></a>
               </div>
             </div>
+
+            <PaperSurface className="sb-hero-paper" spotlight>
+              <div aria-hidden="true" className="sb-demo">
+                <div className="sb-demo-toolbar">
+                  <span><StickyNote size={15} /> Project kickoff</span>
+                  <span><span className="sb-demo-dot" /> Working together</span>
+                </div>
+                <div className="sb-demo-grid">
+                  <div className="sb-demo-note sb-demo-note--first">
+                    <strong>Start small</strong>
+                    <span>Try a pilot with one team.</span>
+                    <small>Maya</small>
+                  </div>
+                  <div className="sb-demo-note sb-demo-note--second">
+                    <strong>Define success</strong>
+                    <span>What would make us do this again?</span>
+                    <small>Jules</small>
+                  </div>
+                  <div className="sb-demo-note sb-demo-note--third">
+                    <strong>Friday check-in</strong>
+                    <span>Bring one thing you learned.</span>
+                    <small>Maya</small>
+                  </div>
+                  <div className="sb-demo-cursor"><MousePointer2 size={19} fill="currentColor" /> <span>Jules</span></div>
+                </div>
+              </div>
+            </PaperSurface>
           </div>
         </div>
+
+        <section id="how-it-works" className="sb-workflow">
+          <div className="sb-workflow-heading" data-sb-reveal>
+            <h2>From a blank board to a plan.</h2>
+          </div>
+          <div className="sb-workflow-grid">
+            <article className="sb-feature sb-feature--capture" data-sb-reveal>
+              <StickyNote size={23} aria-hidden="true" />
+              <div>
+                <h3>Get ideas on the board.</h3>
+                <p>Write in Markdown, give related notes the same color, and move them around as the discussion develops.</p>
+              </div>
+              <div className="sb-color-samples" aria-hidden="true"><i /><i /><i /><i /></div>
+            </article>
+            <article className="sb-feature sb-feature--collab" data-sb-reveal>
+              <MousePointer2 size={23} aria-hidden="true" />
+              <div>
+                <h3>Share the room.</h3>
+                <p>Invite someone with a link and see their notes and cursor as you work.</p>
+              </div>
+            </article>
+            <article className="sb-feature sb-feature--summary" data-sb-reveal>
+              <Sparkles size={23} aria-hidden="true" />
+              <div>
+                <h3>Find the common threads.</h3>
+                <p>Summarize the board into themes and possible next steps.</p>
+              </div>
+            </article>
+          </div>
+          <WorkspaceLink className="sb-workflow-action" />
+        </section>
+        <footer className="sb-landing-footer">
+          <Link to="/" className="sb-wordmark"><StickyNote size={18} aria-hidden="true" /> SpaceBoard</Link>
+          <a href="#how-it-works">How it works</a>
+        </footer>
       </main>
     </>
   )
