@@ -1,4 +1,4 @@
-import { Fragment, type ReactNode } from 'react'
+import { Fragment, memo, type ReactNode } from 'react'
 import { fromMarkdown } from 'mdast-util-from-markdown'
 import type { PhrasingContent, RootContent } from 'mdast'
 
@@ -14,6 +14,19 @@ function safeLink(url: string) {
 }
 
 function render(node: MarkdownNode): ReactNode {
+  if (node.type === 'listItem') {
+    const [first, ...rest] = node.children
+    const text = first?.type === 'paragraph' ? first.children[0] : undefined
+    const task = text?.type === 'text' ? /^\[([ xX])\](?:\s+|$)/.exec(text.value) : null
+    if (task && first?.type === 'paragraph' && text?.type === 'text') {
+      const label = { ...first, children: [{ ...text, value: text.value.slice(task[0].length) }, ...first.children.slice(1)] }
+      const checked = task[1].toLowerCase() === 'x'
+      return <li className="sb-markdown-task">
+        <input type="checkbox" checked={checked} disabled aria-label={checked ? 'Completed task' : 'Open task'} />
+        <div>{render(label)}{rest.map((child, index) => <Fragment key={index}>{render(child)}</Fragment>)}</div>
+      </li>
+    }
+  }
   const children = 'children' in node ? node.children.map((child, i) => (
     <Fragment key={i}>{render(child)}</Fragment>
   )) : null
@@ -45,10 +58,10 @@ function render(node: MarkdownNode): ReactNode {
   }
 }
 
-export function BoardMarkdown({ source }: { source: string }) {
+export const BoardMarkdown = memo(function BoardMarkdown({ source }: { source: string }) {
   return (
     <div className="space-y-2 break-words [overflow-wrap:anywhere]">
       {fromMarkdown(source).children.map((node, i) => <Fragment key={i}>{render(node)}</Fragment>)}
     </div>
   )
-}
+})

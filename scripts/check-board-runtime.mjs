@@ -19,6 +19,7 @@ function token(id, name) {
 const a = token('author', 'Author')
 const b = token('peer', 'Peer')
 let summaryCalls = 0
+let summarizedNoteId
 function anthropicStream(content) {
   const events = [{ type: 'message_start', message: {
     id: 'msg_test', type: 'message', role: 'assistant', model: 'claude-sonnet-5',
@@ -63,7 +64,11 @@ const worker = new Miniflare({ ...convertV4MiniflareOptions({
       assert.equal(payload.tools, undefined)
       assert.equal(payload.container, 'container_test')
       assert(JSON.stringify(payload.messages).includes('srvtoolu_mock'))
-      return anthropicStream([{ type: 'text', text: '## Summary\n\nRun the pilot next week.' }])
+      return anthropicStream([{ type: 'text', text: JSON.stringify({
+        summary: 'Run the pilot next week.',
+        themes: [{ name: 'Pilot', detail: 'Try one team.', noteIds: [summarizedNoteId, summarizedNoteId, randomUUID(), 'invalid'] }],
+        nextSteps: ['Confirm the team.'],
+      }) }])
     },
   },
   log: new Log(LogLevel.WARN),
@@ -151,21 +156,43 @@ try {
   assert.equal(snapshot.payload.records.length, 1)
   const record = snapshot.payload.records[0]
   assert.equal(record.createdBy, 'author')
-  assert.deepEqual(record.data, { markdown: 'Updated together', color: 'lilac', x: 200, y: 220 })
+  const { reactions, ...originalFields } = record.data
+  assert.equal(reactions ?? '', '')
+  assert.deepEqual(originalFields, { markdown: 'Updated together', color: 'lilac', x: 200, y: 220 })
+
+  const reactionPath = notePath + '/reaction'
+  await request(reactionPath, 'PUT', null, { kind: 'like', active: true }, 401)
+  await request(reactionPath, 'PUT', b, { kind: 'like', active: true, userId: 'author' }, 400)
+  await Promise.all([
+    request(reactionPath, 'PUT', a, { kind: 'like', active: true }, 200),
+    request(reactionPath, 'PUT', b, { kind: 'like', active: true }, 200),
+    request(reactionPath, 'PUT', a, { kind: 'like', active: true }, 200),
+  ])
+  const votes = await request(reactionPath, 'PUT', a, { kind: 'like', active: false }, 200)
+  assert.deepEqual(votes.reactions, [{ userId: 'peer', kind: 'like' }])
+  await wsB.receive((event) => event.type === MSG.RECORD_CHANGE && JSON.stringify(event).includes('reactions'))
 
   const presenceA = await socket('/ws/presence/board:' + board.id, a)
   const presenceB = await socket('/ws/presence/board:' + board.id, b)
-  presenceA.send(MSG.PRESENCE_UPDATE, { state: { cursor: { x: 23, y: 101 } } })
+  presenceA.send(MSG.PRESENCE_UPDATE, { state: {
+    cursor: { x: 23, y: 101 }, dragging: { noteId: saved.id, x: 50, y: 70 }, editingNoteId: saved.id,
+  } })
+  await presenceB.receive((event) => JSON.stringify(event).includes('"editingNoteId":"' + saved.id + '"'))
   await presenceB.receive((event) => JSON.stringify(event).includes('"x":23') && JSON.stringify(event).includes('"userId":"author"'))
 
+  summarizedNoteId = saved.id
   const summary = await request(path + '/summary', 'POST', a, null, 200)
-  assert.deepEqual(summary, { summary: '## Summary\n\nRun the pilot next week.', included: 1, total: 1 })
+  assert.deepEqual(summary, {
+    summary: 'Run the pilot next week.',
+    themes: [{ name: 'Pilot', detail: 'Try one team.', noteIds: [saved.id] }],
+    nextSteps: ['Confirm the team.'], included: 1, total: 1,
+  })
   assert.equal(summaryCalls, 2)
   await request(notePath, 'DELETE', b, null, 200)
   await request(notePath, 'DELETE', b, null, 200)
   await request(notePath, 'PATCH', b, { x: 1, y: 2 }, 404)
   await request(path + '/summary', 'POST', a, null, 400)
-  console.log('Passed: auth guard, idempotent board and note creation, validation, shared access, WebSocket sync, cursor presence, persisted snapshot, and deletion.')
+  console.log('Passed: auth guard, idempotent board and note creation, validation, shared access, WebSocket sync, cursor, editing, drag presence, reactions, structured sandbox insights, persisted snapshot, and deletion.')
 } finally {
   for (const socket of activeSockets) socket.close()
   await worker.dispose()

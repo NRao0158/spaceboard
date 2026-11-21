@@ -1,13 +1,14 @@
 import { ArrowDown, ArrowRight, MousePointer2, Sparkles, StickyNote } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { Seo } from '../components/Seo'
-import { Magnetic, PaperSurface } from '@/components/SurfaceEffects'
+import { Magnetic } from '@/components/SurfaceEffects'
+import { HeroBoardPreview } from '@/components/HeroBoardPreview'
 import { useScrollReveal } from '@/lib/surface-motion'
 import { seo } from '../seo'
 
-function WorkspaceLink({ className }: { className?: string }) {
+function WorkspaceLink() {
   return (
-    <Magnetic className={className}>
+    <Magnetic>
       <Link to="/home" className="sb-action sb-action--lilac">
         Open workspace <ArrowRight size={17} aria-hidden="true" />
       </Link>
@@ -28,7 +29,6 @@ export default function Landing() {
               <span className="sb-brand-mark"><StickyNote size={20} aria-hidden="true" /></span>SpaceBoard
             </Link>
             <div className="sb-landing-nav-actions">
-              <a href="#how-it-works" className="sb-nav-text">How it works</a>
               <WorkspaceLink />
             </div>
           </header>
@@ -43,32 +43,7 @@ export default function Landing() {
               </div>
             </div>
 
-            <PaperSurface className="sb-hero-paper" spotlight>
-              <div aria-hidden="true" className="sb-demo">
-                <div className="sb-demo-toolbar">
-                  <span><StickyNote size={15} /> Project kickoff</span>
-                  <span><span className="sb-demo-dot" /> Working together</span>
-                </div>
-                <div className="sb-demo-grid">
-                  <div className="sb-demo-note sb-demo-note--first">
-                    <strong>Start small</strong>
-                    <span>Try a pilot with one team.</span>
-                    <small>Maya</small>
-                  </div>
-                  <div className="sb-demo-note sb-demo-note--second">
-                    <strong>Define success</strong>
-                    <span>What would make us do this again?</span>
-                    <small>Jules</small>
-                  </div>
-                  <div className="sb-demo-note sb-demo-note--third">
-                    <strong>Friday check-in</strong>
-                    <span>Bring one thing you learned.</span>
-                    <small>Maya</small>
-                  </div>
-                  <div className="sb-demo-cursor"><MousePointer2 size={19} fill="currentColor" /> <span>Jules</span></div>
-                </div>
-              </div>
-            </PaperSurface>
+            <HeroBoardPreview />
           </div>
         </div>
 
@@ -100,11 +75,9 @@ export default function Landing() {
               </div>
             </article>
           </div>
-          <WorkspaceLink className="sb-workflow-action" />
         </section>
         <footer className="sb-landing-footer">
           <Link to="/" className="sb-wordmark"><StickyNote size={18} aria-hidden="true" /> SpaceBoard</Link>
-          <a href="#how-it-works">How it works</a>
         </footer>
       </main>
     </>

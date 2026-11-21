@@ -25,7 +25,7 @@ export const notePositionSchema = z.object({
 export const noteFieldsSchema = noteTextSchema.extend(notePositionSchema.shape)
 
 export type BoardFields = { title: string }
-export type NoteFields = z.infer<typeof noteFieldsSchema>
+export type NoteFields = z.infer<typeof noteFieldsSchema> & { reactions?: string }
 export type Note = RecordData<NoteFields>
 export type Point = z.infer<typeof notePositionSchema>
 export type BoardDetails = { id: string; title: string }
@@ -72,6 +72,7 @@ export const boardSchemas: CollectionSchema[] = [
       },
       { name: 'x', storage: 'number', interpretation: 'plain', required: true },
       { name: 'y', storage: 'number', interpretation: 'plain', required: true },
+      { name: 'reactions', storage: 'text', interpretation: 'plain', required: false },
     ],
     permissions,
   },

@@ -1,7 +1,7 @@
 import { getAuthToken } from 'deepspace'
 import { boardIdFromPath, type BoardDetails } from '@/schemas/board-schema'
 
-export type BoardSummary = { summary: string; included: number; total: number }
+export type { BoardSummary } from './theme-layout'
 
 export class BoardRequestError extends Error {
   constructor(message: string, readonly status: number) {
@@ -10,7 +10,7 @@ export class BoardRequestError extends Error {
 }
 
 export async function boardRequest<T>(path = '', options: {
-  method?: 'POST' | 'PATCH' | 'DELETE'
+  method?: 'POST' | 'PATCH' | 'DELETE' | 'PUT'
   data?: object
   signal?: AbortSignal
 } = {}): Promise<T> {
@@ -56,24 +56,44 @@ export function takeBoardAfterSignIn() {
   }
 }
 
-export function readRecentBoards(userId: string): BoardDetails[] {
+export type RecentBoard = BoardDetails & { openedAt?: number; noteCount?: number }
+
+export function readRecentBoards(userId: string): RecentBoard[] {
   try {
     const stored: unknown = JSON.parse(localStorage.getItem(recentKey(userId)) ?? '[]')
     if (!Array.isArray(stored)) return []
-    return stored.filter((board): board is BoardDetails =>
+    return stored.filter((board): board is RecentBoard =>
       typeof board?.id === 'string' && typeof board?.title === 'string' &&
       boardIdFromPath(boardPath(board.id)) !== null,
-    ).slice(0, 8)
+    ).slice(0, 8).map(({ id, title, openedAt, noteCount }) => ({
+      id, title,
+      openedAt: typeof openedAt === 'number' && Number.isFinite(openedAt) && openedAt >= 0 && openedAt <= Date.now() ? openedAt : undefined,
+      noteCount: typeof noteCount === 'number' && Number.isInteger(noteCount) && noteCount >= 0 ? noteCount : undefined,
+    }))
   } catch {
     return []
   }
 }
 
-export function rememberRecentBoard(userId: string, board: BoardDetails) {
-  try {
-    const recent = [board, ...readRecentBoards(userId).filter(({ id }) => id !== board.id)]
-    localStorage.setItem(recentKey(userId), JSON.stringify(recent.slice(0, 8)))
-  } catch {
+function writeRecentBoards(userId: string, boards: RecentBoard[]) {
+  try { localStorage.setItem(recentKey(userId), JSON.stringify(boards.slice(0, 8))) } catch {
     // Browser storage is optional. Boards are still available by their links.
   }
+}
+
+export function rememberRecentBoard(userId: string, board: RecentBoard) {
+  const recent = readRecentBoards(userId)
+  const previous = recent.find(({ id }) => id === board.id)
+  writeRecentBoards(userId, [{ ...previous, ...board, openedAt: Date.now() }, ...recent.filter(({ id }) => id !== board.id)])
+}
+
+export function updateRecentNoteCount(userId: string, boardId: string, noteCount: number) {
+  const recent = readRecentBoards(userId)
+  if (recent.some((board) => board.id === boardId && board.noteCount !== noteCount)) {
+    writeRecentBoards(userId, recent.map((board) => board.id === boardId ? { ...board, noteCount } : board))
+  }
+}
+
+export function removeRecentBoard(userId: string, boardId: string) {
+  writeRecentBoards(userId, readRecentBoards(userId).filter(({ id }) => id !== boardId))
 }

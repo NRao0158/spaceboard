@@ -1,111 +1,140 @@
-import { Check, Trash2 } from 'lucide-react'
-import { useId, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
+import { Bold, Eye, Heading, List, Maximize2, Pencil } from 'lucide-react'
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { BoardMarkdown } from './BoardMarkdown'
 import { Button, Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui'
-import { MAX_NOTE_LENGTH, NOTE_COLORS, type Note, type NoteFields } from '@/schemas/board-schema'
+import { MAX_NOTE_LENGTH } from '@/schemas/board-schema'
 
-const swatches: Record<NoteFields['color'], string> = {
-  lemon: 'bg-[#fff1ac]', mint: 'bg-[#caf0df]', lilac: 'bg-[#e8ddff]', peach: 'bg-[#ffddcc]',
+export type NoteFormat = 'heading' | 'bold' | 'bullet'
+
+export function MarkdownTools({ onInsert, disabled }: { onInsert: (format: NoteFormat) => void; disabled?: boolean }) {
+  return <>
+    <button type="button" aria-label="Insert heading" title="Heading" disabled={disabled} onClick={() => onInsert('heading')}><Heading size={15} /></button>
+    <button type="button" aria-label="Insert bold" title="Bold" disabled={disabled} onClick={() => onInsert('bold')}><Bold size={15} /></button>
+    <button type="button" aria-label="Insert bullet list" title="Bullet list" disabled={disabled} onClick={() => onInsert('bullet')}><List size={15} /></button>
+  </>
 }
 
-interface NoteComposerProps {
-  note?: Note
-  onClose: () => void
-  onSave: (data: Pick<NoteFields, 'markdown' | 'color'>) => Promise<void>
-  onDelete: () => Promise<void>
+function insertMarkdown(value: string, from: number, to: number, format: NoteFormat) {
+  if (format === 'bold') return { start: from, end: to, replacement: '**' + (value.slice(from, to) || 'bold text') + '**' }
+  const start = from === 0 ? 0 : value.lastIndexOf('\n', from - 1) + 1
+  const lineEnd = value.indexOf('\n', to)
+  const end = lineEnd === -1 ? value.length : lineEnd
+  const prefix = format === 'heading' ? '## ' : '- '
+  return { start, end, replacement: value.slice(start, end).split('\n').map((line) => prefix + line).join('\n') }
 }
 
-export function NoteComposer({ note, onClose, onSave, onDelete }: NoteComposerProps) {
-  const [markdown, setMarkdown] = useState(note?.data.markdown ?? '')
-  const [color, setColor] = useState<NoteFields['color']>(note?.data.color ?? 'lemon')
+export function NoteComposer({ initial, initialFormat, isNew, onClose, onSave }: {
+  initial: string; initialFormat?: NoteFormat; isNew?: boolean
+  onClose: () => void; onSave: (markdown: string) => Promise<void>
+}) {
+  const [markdown, setMarkdown] = useState(() => {
+    if (!initialFormat) return initial
+    const anchor = initialFormat === 'bold' ? initial.length : 0
+    const { start, end, replacement } = insertMarkdown(initial, 0, anchor, initialFormat)
+    const formatted = initial.slice(0, start) + replacement + initial.slice(end)
+    return formatted.length <= MAX_NOTE_LENGTH ? formatted : initial
+  })
   const [preview, setPreview] = useState(false)
-  const tabPrefix = useId()
-  const textTab = useRef<HTMLButtonElement>(null)
-  const previewTab = useRef<HTMLButtonElement>(null)
-  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [expanded, setExpanded] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const input = useRef<HTMLTextAreaElement>(null)
+  const modalInput = useRef<HTMLTextAreaElement>(null)
+  const saving = useRef(false)
+  const autoFocus = useRef(true)
 
-  async function run(action: () => Promise<void>) {
-    if (busy) return
+  useEffect(() => {
+    if (preview) return
+    const field = expanded ? modalInput.current : input.current
+    if (!field) return
+    field.focus({ preventScroll: true })
+    if (autoFocus.current) field.setSelectionRange(field.value.length, field.value.length)
+    autoFocus.current = false
+  }, [expanded, preview])
+
+  async function save() {
+    if (saving.current || !markdown.trim()) return
+    saving.current = true
     setBusy(true)
     setError('')
     try {
-      await action()
+      await onSave(markdown)
       onClose()
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : 'Could not save this change.')
+      setError(failure instanceof Error ? failure.message : 'Could not save the note.')
     } finally {
+      saving.current = false
       setBusy(false)
     }
   }
 
-  function submit(event: FormEvent) {
-    event.preventDefault()
-    if (markdown.trim()) void run(() => onSave({ markdown, color }))
+  function insert(format: NoteFormat) {
+    const field = expanded ? modalInput.current : input.current
+    const { start, end, replacement } = insertMarkdown(markdown, field?.selectionStart ?? markdown.length, field?.selectionEnd ?? markdown.length, format)
+    const text = markdown.slice(0, start) + replacement + markdown.slice(end)
+    if (text.length > MAX_NOTE_LENGTH) return
+    setMarkdown(text)
+    setPreview(false)
+    requestAnimationFrame(() => {
+      const target = expanded ? modalInput.current : input.current
+      target?.focus({ preventScroll: true })
+      target?.setSelectionRange(start + replacement.length, start + replacement.length)
+    })
   }
 
-  function selectTab(event: KeyboardEvent<HTMLDivElement>) {
-    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
-    event.preventDefault()
-    const next = event.key === 'Home' ? false : event.key === 'End' ? true : !preview
-    setPreview(next)
-    const selected = next ? previewTab : textTab
-    selected.current?.focus()
+  function keys(event: KeyboardEvent<HTMLElement>) {
+    if (event.key === 'Escape' && !busy) {
+      event.stopPropagation()
+      event.preventDefault()
+      if (expanded) setExpanded(false)
+      else onClose()
+    }
+    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey) && !event.nativeEvent.isComposing) {
+      event.preventDefault()
+      event.stopPropagation()
+      void save()
+    }
   }
+
+  const formatButtons = (
+    <div className="sb-editor-tools">
+      <button type="button" onClick={() => setPreview((current) => !current)} aria-label={preview ? 'Edit Markdown' : 'Preview Markdown'} title={preview ? 'Edit Markdown' : 'Preview Markdown'}>{preview ? <Pencil size={15} /> : <Eye size={15} />}</button>
+      <MarkdownTools onInsert={insert} disabled={busy} />
+      {!expanded && <button type="button" title="Expand editor" aria-label="Expand editor" onClick={() => { setPreview(false); setExpanded(true) }}><Maximize2 size={15} /></button>}
+    </div>
+  )
+  const textarea = (large: boolean) => (
+    <textarea ref={large ? modalInput : input} rows={large ? 10 : 4} aria-label="Note" className={large ? 'sb-field w-full' : 'sb-inline-text'} maxLength={MAX_NOTE_LENGTH}
+      data-note-scroll readOnly={busy} value={markdown} placeholder="What's on your mind?" onChange={(event) => setMarkdown(event.target.value)} />
+  )
 
   return (
-    <Dialog open onOpenChange={(open) => { if (!open && !busy) onClose() }}>
-      <DialogContent className="sb-note-dialog max-h-[90dvh] overflow-auto border-slate-200 bg-white text-slate-950">
-        <DialogTitle>{note ? 'Edit note' : 'Add a sticky note'}</DialogTitle>
-        <DialogDescription className="text-slate-600">Use Markdown for headings, lists, links, and formatting.</DialogDescription>
-        <form onSubmit={submit} className="grid gap-4">
-          <div>
-            <div role="tablist" aria-label="Note editor mode" onKeyDown={selectTab} className="sb-note-tabs" data-preview={preview}>
-              <button ref={textTab} id={tabPrefix + '-edit'} role="tab" type="button" aria-controls={tabPrefix + '-editor'} aria-selected={!preview} tabIndex={preview ? -1 : 0} onClick={() => setPreview(false)}>Edit text</button>
-              <button ref={previewTab} id={tabPrefix + '-view'} role="tab" type="button" aria-controls={tabPrefix + '-preview'} aria-selected={preview} tabIndex={preview ? 0 : -1} onClick={() => setPreview(true)}>Preview Markdown</button>
+    <div className="sb-inline-editor" onKeyDown={keys}>
+      {!expanded && <>
+        {formatButtons}
+        {preview ? <div className="sb-editor-preview" data-note-scroll><BoardMarkdown source={markdown || 'Add text to preview it.'} /></div> : textarea(false)}
+        {error && <p role="alert" className="sb-note-error">{error}</p>}
+        <div className="sb-editor-actions">
+          <button type="button" disabled={busy} onClick={onClose}>Cancel</button>
+          <button type="button" disabled={busy || !markdown.trim()} onClick={() => void save()}>{busy ? 'Saving…' : isNew ? 'Add note' : 'Save changes'}</button>
+        </div>
+      </>}
+      {expanded && <>
+        <p className="sb-editor-placeholder">Editor expanded</p>
+        <Dialog open onOpenChange={(open) => { if (!open && !busy) setExpanded(false) }}>
+          <DialogContent className="sb-note-dialog max-h-[90dvh] overflow-auto bg-white text-slate-950" initialFocus={modalInput}>
+            <DialogTitle>{isNew ? 'Add a sticky note' : 'Edit note'}</DialogTitle>
+            <DialogDescription>Markdown editor</DialogDescription>
+            {formatButtons}
+            {preview ? <div className="sb-editor-preview" data-note-scroll><BoardMarkdown source={markdown} /></div> : textarea(true)}
+            {error && <p role="alert" className="sb-note-error">{error}</p>}
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" disabled={busy} onClick={() => setExpanded(false)}>Back to note</Button>
+              <Button className="sb-button-primary" disabled={busy || !markdown.trim()} onClick={() => void save()}>{isNew ? 'Add note' : 'Save changes'}</Button>
             </div>
-            <div id={tabPrefix + '-editor'} role="tabpanel" aria-labelledby={tabPrefix + '-edit'} hidden={preview}>
-              <label htmlFor="sticky-text" className="sr-only">Note</label>
-              <textarea id="sticky-text" rows={5} required={!preview} maxLength={MAX_NOTE_LENGTH} value={markdown} onChange={(e) => setMarkdown(e.target.value)}
-                className="sb-field w-full resize-y"
-                placeholder="What’s on your mind?" />
-            </div>
-            <div id={tabPrefix + '-preview'} role="tabpanel" aria-labelledby={tabPrefix + '-view'} hidden={!preview}
-              tabIndex={preview ? 0 : -1} className="min-h-36 rounded-xl border border-slate-300 bg-slate-50 p-3 text-sm">
-              {preview && (markdown.trim() ? <BoardMarkdown source={markdown} /> : 'Add some text to preview it.')}
-            </div>
-          </div>
-          <fieldset>
-            <legend className="mb-1 text-sm font-medium">Color</legend>
-            <div className="flex flex-wrap gap-2">
-              {NOTE_COLORS.map((choice) => (
-                <label key={choice} className={'grid size-9 cursor-pointer place-items-center rounded-full border border-slate-300 text-slate-900 focus-within:ring-2 focus-within:ring-indigo-600 ' + swatches[choice]}>
-                  <input type="radio" name="note-color" value={choice} checked={color === choice} onChange={() => setColor(choice)} className="sr-only" />
-                  <span className="sr-only">{choice}</span>
-                  {choice === color && <Check className="size-4" aria-hidden="true" />}
-                </label>
-              ))}
-            </div>
-          </fieldset>
-          {error && <p role="alert" className="text-sm text-rose-700">{error}</p>}
-          {confirmDelete ? (
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              <span className="mr-auto text-sm font-medium text-rose-700">Delete this note for everyone?</span>
-              <Button variant="outline" className="sb-button-secondary" disabled={busy} onClick={() => setConfirmDelete(false)}>Keep note</Button>
-              <Button variant="destructive" loading={busy} onClick={() => void run(onDelete)}>Delete</Button>
-            </div>
-          ) : (
-            <div className="flex flex-wrap justify-end gap-2">
-              {note && <Button variant="ghost" className="mr-auto text-rose-700" disabled={busy} onClick={() => setConfirmDelete(true)}><Trash2 aria-hidden="true" /> Delete note</Button>}
-              <Button variant="outline" className="sb-button-secondary" disabled={busy} onClick={onClose}>Cancel</Button>
-              <Button className="sb-button-primary" type="submit" loading={busy} disabled={!markdown.trim()}>
-                {note ? 'Save changes' : 'Add note'}
-              </Button>
-            </div>
-          )}
-        </form>
-      </DialogContent>
-    </Dialog>
+          </DialogContent>
+        </Dialog>
+      </>}
+    </div>
   )
 }
