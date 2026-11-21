@@ -1,0 +1,23 @@
+name: SpaceBoard studio verification
+on:
+  push:
+    branches:
+      - spaceboard-studio-checks
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm ci
+      - run: npm run type-check
+      - run: npm run lint
+      - run: npm run test:unit
+      - run: npm run test:runtime
+      - run: npm run build
