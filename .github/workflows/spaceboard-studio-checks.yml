@@ -1,8 +1,7 @@
 name: SpaceBoard studio verification
 on:
   push:
-    branches:
-      - spaceboard-studio-checks
+    branches: [spaceboard-studio-checks]
   workflow_dispatch:
 permissions:
   contents: read
@@ -12,6 +11,8 @@ jobs:
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
@@ -21,3 +22,5 @@ jobs:
       - run: npm run test:unit
       - run: npm run test:runtime
       - run: npm run build
+      - run: npx playwright install chromium --with-deps
+      - run: node scripts/ci-studio-browser.mjs

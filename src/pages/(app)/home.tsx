@@ -78,7 +78,7 @@ export default function HomePage() {
     }
   }
 
-  async function useTemplate(template: (typeof BOARD_TEMPLATES)[number]) {
+  async function createFromTemplate(template: (typeof BOARD_TEMPLATES)[number]) {
     if (!userId || !signedIn) { setShowAuth(true); return }
     if (creating.current) return
     creating.current = true
@@ -176,7 +176,7 @@ export default function HomePage() {
           <div className="sb-template-grid">
             {BOARD_TEMPLATES.map((template) => (
               <button className="sb-template-card" data-template={template.id} type="button" key={template.id} disabled={busy || !!templateBusy}
-                onClick={() => void useTemplate(template)}>
+                onClick={() => void createFromTemplate(template)}>
                 <span className="sb-template-art" aria-hidden="true"><i /><i /><i /></span>
                 <span className="sb-template-copy"><strong>{template.title}</strong><span>{templateBusy === template.id ? 'Creating board…' : template.description}</span></span>
                 <ArrowRight size={17} className="sb-template-arrow" aria-hidden="true" />
