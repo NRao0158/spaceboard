@@ -1,6 +1,6 @@
 # SpaceBoard
 
-[Open the live app](https://spaceboard-nihal.app.space) · [Submission writeup and review guide](SUBMISSION.md)
+[Open the live app](https://spaceboard-nihal.app.space) | [Submission writeup and review guide](SUBMISSION.md)
 
 SpaceBoard is a shared brainstorming board built with DeepSpace, React, Hono, and Cloudflare Workers. Create a board, add Markdown sticky notes, and share the link with collaborators. Notes and their positions persist. Collaborators can see live edits and each other's cursors.
 

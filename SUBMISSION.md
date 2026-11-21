@@ -35,8 +35,10 @@ Agent-run checks:
 | TypeScript, lint, unit tests, production build | Passed |
 | Built Worker and local Durable Objects | Passed authentication guards, validation, retry-safe creation, shared editing, live subscriptions, cursor presence, persisted snapshots, and deletion |
 | Sandbox regression fixture | Passed a tool-only first response followed by a separate final summary request |
-| Live Anthropic sandbox | Passed a real deployed summary request, returning grounded themes and next steps with the correct included-note count |
+| Live Anthropic sandbox and summary UI | Passed both a direct deployed request and the actual Summarize board button with three notes; returned grounded themes, next steps, and “Based on 3 of 3 notes” |
 | Deployed two-user browser check | Passed Markdown, edits, cursors, and persisted positions with real accounts and production services; network requests were relayed through the test process because direct browser networking was restricted |
+
+Later reload attempts encountered intermittent WebSocket failures in the browser relay. Fresh production WebSocket subscriptions separately confirmed persisted note text, attribution, and positions. The steps above provide a final smoke test in an ordinary browser.
 
 Temporary test accounts and notes were removed after verification. Browser test identities and management credentials are not committed.
 
