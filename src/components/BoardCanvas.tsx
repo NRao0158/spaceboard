@@ -1,6 +1,6 @@
 import { useAuth, useQuery, useRecordContext, useUserLookup } from 'deepspace'
 import { ArrowLeft, Check, Copy, Focus, Link2, Minus, MousePointer2, Plus, Sparkles, StickyNote, Users, X } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { AiInsightsDrawer } from './AiInsightsDrawer'
 import { CanvasMinimap } from './CanvasMinimap'
@@ -64,6 +64,7 @@ export function BoardCanvas({ board }: { board: BoardDetails }) {
   const [summaryBusy, setSummaryBusy] = useState(false)
   const summaryRequest = useRef<AbortController | null>(null)
   const searchField = useRef<HTMLInputElement>(null)
+  const shortcuts = useRef<(event: KeyboardEvent) => void>(() => {})
   const editable = ready && roomStatus === 'connected' && status === 'ready'
   const editingAnything = Boolean(draft || editingId)
   const canAdd = editable && !editingAnything && !seeding && !adding && !actions.layoutBusy && records.length < MAX_NOTES
@@ -174,7 +175,7 @@ export function BoardCanvas({ board }: { board: BoardDetails }) {
   }
 
   async function arrange(undo = false) {
-    if (!editable || editingAnything || adding || seeding || !undo && !summary?.themes.length) return
+    if (!editable || editingAnything || adding || seeding || (!undo && !summary?.themes.length)) return
     const positions = await actions.changeLayout(undo ? undefined : summary?.themes)
     if (positions?.length) {
       setTheme(null)
@@ -219,12 +220,15 @@ export function BoardCanvas({ board }: { board: BoardDetails }) {
 
   useEffect(() => {
     function clearSpace() { setSpace(false) }
-    function release(event: globalThis.KeyboardEvent) { if (event.code === 'Space') clearSpace() }
+    function release(event: KeyboardEvent) { if (event.code === 'Space') clearSpace() }
+    function press(event: KeyboardEvent) { shortcuts.current(event) }
     window.addEventListener('blur', clearSpace)
     window.addEventListener('keyup', release)
+    window.addEventListener('keydown', press)
     return () => {
       window.removeEventListener('blur', clearSpace)
       window.removeEventListener('keyup', release)
+      window.removeEventListener('keydown', press)
     }
   }, [])
 
@@ -240,13 +244,14 @@ export function BoardCanvas({ board }: { board: BoardDetails }) {
     }
   }
 
-  function handleShortcut(event: KeyboardEvent<HTMLElement>) {
-    if (event.defaultPrevented || event.nativeEvent.isComposing || event.metaKey || event.ctrlKey || event.altKey) return
+  function handleShortcut(event: KeyboardEvent) {
+    if (event.defaultPrevented || event.isComposing || event.metaKey || event.ctrlKey || event.altKey) return
+    if (document.querySelector('[data-slot="dialog-content"][data-open]')) return
     if (event.key === 'Escape' && !editingAnything) {
       setPopover(undefined); setSearchOpen(false); setQuery(''); setTopVoted(false); setTheme(null); setSelected(undefined)
       return
     }
-    if (!(event.target instanceof Element) || event.target.closest('input, textarea, [contenteditable], [role="dialog"]') || editingAnything) return
+    if (!(event.target instanceof Element) || event.target.closest('input, textarea, select, [contenteditable], [role="dialog"]') || editingAnything) return
     const key = event.key.toLowerCase()
     if (key === ' ' && !event.target.closest('button, a')) { event.preventDefault(); setSpace(true); return }
     if (event.repeat) return
@@ -259,6 +264,8 @@ export function BoardCanvas({ board }: { board: BoardDetails }) {
     else return
     event.preventDefault()
   }
+
+  shortcuts.current = handleShortcut
 
   function renderNote(note: Note) {
     const { recordId, data } = note
@@ -289,7 +296,7 @@ export function BoardCanvas({ board }: { board: BoardDetails }) {
   }
 
   return (
-    <section aria-label={board.title} className="sb-board-frame sb-studio-frame" onKeyDown={handleShortcut}>
+    <section aria-label={board.title} className="sb-board-frame sb-studio-frame">
       <title>{board.title + ' | SpaceBoard'}</title>
       <header className="sb-studio-header">
         <div className="min-w-0">
