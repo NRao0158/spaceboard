@@ -3,6 +3,7 @@ import { ArrowRight, LayoutGrid, Link2, Plus, Search, StickyNote, type LucideIco
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Dialog, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from '@/components/ui'
+import { useStudioCommandSource, type StudioCommand } from '@/lib/studio-commands'
 import { boardPath, readRecentBoards } from '@/lib/board-api'
 
 interface Command {
@@ -24,7 +25,7 @@ const actions: Command[] = [
   { id: 'join', label: 'Open a board link', destination: '/home?focus=join', keywords: 'join paste invite shared', icon: Link2, group: 'Action' },
 ]
 
-function rank(command: Command, query: string) {
+function rank(command: Command | StudioCommand, query: string) {
   if (!query) return 0
   const label = command.label.toLowerCase()
   if (label === query) return 0
@@ -44,6 +45,8 @@ function rank(command: Command, query: string) {
 export function CommandPalette({ navigation }: { navigation: NavigationItem[] }) {
   const { userId } = useAuth()
   const navigate = useNavigate()
+  const boardCommands = useStudioCommandSource()
+  const [studio, setStudio] = useState<StudioCommand[]>([])
   const listId = useId()
   const input = useRef<HTMLInputElement>(null)
   const [open, setOpen] = useState(false)
@@ -54,6 +57,7 @@ export function CommandPalette({ navigation }: { navigation: NavigationItem[] })
   function changeOpen(next: boolean) {
     setOpen(next)
     if (next) {
+      setStudio(boardCommands?.current?.() ?? [])
       setQuery('')
       setActive(0)
     }
@@ -70,7 +74,7 @@ export function CommandPalette({ navigation }: { navigation: NavigationItem[] })
     }
     window.addEventListener('keydown', activate)
     return () => window.removeEventListener('keydown', activate)
-  }, [open])
+  }, [open, boardCommands])
 
   const recent: Command[] = userId && open ? readRecentBoards(userId).map((board) => ({
     id: board.id,
@@ -84,7 +88,7 @@ export function CommandPalette({ navigation }: { navigation: NavigationItem[] })
     id: path, label: path === '/home' ? 'Your boards' : label,
     destination: path, keywords: 'page navigate', icon: LayoutGrid, group: 'Page',
   }))
-  const results = [...actions, ...recent, ...pages]
+  const results = [...studio.filter((command) => query.trim() || command.group === 'Action'), ...actions, ...recent, ...pages]
     .map((command) => ({ command, score: rank(command, query.trim().toLowerCase()) }))
     .filter(({ score }) => Number.isFinite(score))
     .sort((a, b) => a.score - b.score)
@@ -95,9 +99,10 @@ export function CommandPalette({ navigation }: { navigation: NavigationItem[] })
     if (open) document.getElementById(listId + '-' + active)?.scrollIntoView({ block: 'nearest' })
   }, [active, listId, open])
 
-  function run(command: Command) {
+  function run(command: Command | StudioCommand) {
     changeOpen(false)
-    void navigate(command.destination)
+    if ('run' in command) requestAnimationFrame(command.run)
+    else void navigate(command.destination)
   }
 
   function handleKeys(event: KeyboardEvent<HTMLInputElement>) {

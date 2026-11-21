@@ -22,11 +22,12 @@ function OpenBoard({ id }: { id: string }) {
   useEffect(() => {
     if (!userId) return
     const request = new AbortController()
+    const started = Date.now()
     void boardRequest<BoardDetails>('/' + id, { signal: request.signal })
       .then((result) => {
         if (request.signal.aborted) return
         rememberRecentBoard(userId, result)
-        setBoard(result)
+        setBoard({ ...result, clockOffset: result.serverNow ? result.serverNow - (started + Date.now()) / 2 : 0 })
       })
       .catch((failure: unknown) => {
         if (!request.signal.aborted) setError(failure instanceof Error ? failure.message : 'Could not open the board.')

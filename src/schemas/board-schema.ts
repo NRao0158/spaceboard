@@ -24,11 +24,11 @@ export const notePositionSchema = z.object({
 }).strict()
 export const noteFieldsSchema = noteTextSchema.extend(notePositionSchema.shape)
 
-export type BoardFields = { title: string }
+export type BoardFields = { title: string; edges?: string; sections?: string; timer?: string }
 export type NoteFields = z.infer<typeof noteFieldsSchema> & { reactions?: string }
 export type Note = RecordData<NoteFields>
 export type Point = z.infer<typeof notePositionSchema>
-export type BoardDetails = { id: string; title: string }
+export type BoardDetails = { id: string; title: string; serverNow?: number; clockOffset?: number }
 
 export function boardRoomId(boardId: string) {
   return 'board:' + boardId
@@ -57,7 +57,12 @@ const permissions = { '*': denied, viewer: readOnly, member: readOnly, admin: re
 export const boardSchemas: CollectionSchema[] = [
   {
     name: 'boards',
-    columns: [{ name: 'title', storage: 'text', interpretation: 'plain', required: true }],
+    columns: [
+      { name: 'title', storage: 'text', interpretation: 'plain', required: true },
+      { name: 'edges', storage: 'text', interpretation: 'plain', required: false },
+      { name: 'sections', storage: 'text', interpretation: 'plain', required: false },
+      { name: 'timer', storage: 'text', interpretation: 'plain', required: false },
+    ],
     permissions,
   },
   {

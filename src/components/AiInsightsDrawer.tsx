@@ -1,15 +1,17 @@
+import type { ReactNode } from 'react'
 import { LayoutGrid, Plus, RotateCcw, Sparkles, X } from 'lucide-react'
 import { BoardMarkdown } from './BoardMarkdown'
 import type { BoardSummary } from '@/lib/theme-layout'
 
 type Props = {
+  tabs?: ReactNode
   summary?: BoardSummary; busy: boolean; error: string; theme: number | null
   onTheme: (index: number | null) => void; onClose: () => void; onGenerate: () => void
   onAdd: (step: string, index: number) => Promise<void>; onArrange: () => void; onUndo: () => void
   working: boolean; canAdd: boolean; canUndo: boolean; canGenerate: boolean
 }
 
-export function AiInsightsDrawer({ summary, busy, error, theme, onTheme, onClose, onGenerate, onAdd, onArrange, onUndo, working, canAdd, canUndo, canGenerate }: Props) {
+export function AiInsightsDrawer({ summary, busy, error, theme, onTheme, onClose, onGenerate, onAdd, onArrange, onUndo, working, canAdd, canUndo, canGenerate, tabs }: Props) {
   return (
     <aside className="sb-insights" aria-label="Board insights">
       <header className="sb-insights-heading">
@@ -17,6 +19,7 @@ export function AiInsightsDrawer({ summary, busy, error, theme, onTheme, onClose
         <h2>Board insights</h2>
         <button type="button" className="sb-small-control" onClick={onClose} aria-label="Close insights"><X size={18} /></button>
       </header>
+      {tabs}
       <div className="sb-insights-body">
         {busy && <div role="status" className="sb-insights-loading">Reading the board <span className="sb-loading-dots" aria-hidden="true"><i /><i /><i /></span></div>}
         {error && <p role="alert" className="sb-studio-error">{error}</p>}

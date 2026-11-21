@@ -9,9 +9,15 @@ type Collection = 'boards' | 'notes'
 type RecordResult<T> = { record: RecordData<T> }
 type ReactionChange = { noteId: string; kind: ReactionKind; active: boolean }
 type CreateRecord = { collection: Collection; recordId: string; data: Record<string, unknown> }
+import { commitStudio, type RecordTool } from './studio-mutations.js'
+import { readStudio, studioBatch, type StudioOp } from '../lib/board-studio.js'
+import { changeTimer, timerActionSchema, type TimerAction } from '../lib/board-timer.js'
+
 const TOOL_PATH = '/api/tools/execute'
 const CREATE_PATH = '/internal/spaceboard/create'
 
+const STUDIO_PATH = '/internal/spaceboard/studio'
+const TIMER_PATH = '/internal/spaceboard/timer'
 const REACTION_PATH = '/internal/spaceboard/reaction'
 
 function internalRequest(path: string, userId: string, body: object) {
@@ -29,7 +35,7 @@ function internalRequest(path: string, userId: string, body: object) {
 export class BoardRecordRoom extends RecordRoom<Env> {
   private writes = Promise.resolve()
 
-  constructor(state: DurableObjectState, env: Env) {
+  constructor(private readonly boardState: DurableObjectState, env: Env) {
     const roster = {
       ...usersSchema,
       permissions: {
@@ -37,12 +43,12 @@ export class BoardRecordRoom extends RecordRoom<Env> {
         member: { read: 'own', create: false, update: false, delete: false },
       },
     } satisfies typeof usersSchema
-    super(state, env, [roster, ...boardSchemas])
+    super(boardState, env, [roster, ...boardSchemas])
   }
 
   override fetch(request: Request): Promise<Response> {
     const path = new URL(request.url).pathname
-    if (path !== CREATE_PATH && path !== REACTION_PATH) return super.fetch(request)
+    if (![CREATE_PATH, REACTION_PATH, STUDIO_PATH, TIMER_PATH].includes(path)) return super.fetch(request)
     const userId = request.headers.get('X-User-Id')
     if (request.method !== 'POST' || !userId || request.headers.get('X-App-Action') !== 'true') {
       return Promise.resolve(new Response(null, { status: 403 }))
@@ -50,12 +56,35 @@ export class BoardRecordRoom extends RecordRoom<Env> {
     // Serialize read-modify-write operations in this board room, including
     // retry-safe creates and concurrent votes for the same note.
     const write = this.writes.then(async () => {
+      if (path === STUDIO_PATH) {
+        const batch = studioBatch.parse(await request.json())
+        return commitStudio(this.recordTools(userId), this.boardState.storage, userId, batch.ops)
+      }
+      if (path === TIMER_PATH) return this.updateTimer(userId, timerActionSchema.parse(await request.json()))
       if (path === REACTION_PATH) return this.updateReaction(userId, await request.json<ReactionChange>())
       const input = await request.json<CreateRecord>()
       return this.createOnce(userId, input)
     })
     this.writes = write.then(() => undefined, () => undefined)
     return write
+  }
+
+  private recordTools(userId: string): RecordTool {
+    return async <T>(tool: string, params: object, actor = userId) => {
+      const response = await super.fetch(internalRequest(TOOL_PATH, actor, { tool, params }))
+      return response.json<ActionResult<T>>()
+    }
+  }
+
+  private async updateTimer(userId: string, action: TimerAction) {
+    const run = this.recordTools(userId)
+    const target = { collection: 'boards', recordId: BOARD_RECORD_ID }
+    const current = await run<RecordResult<BoardFields>>('records.get', target)
+    if (!current.success) return Response.json({ error: 'Timer unavailable.' }, { status: 503 })
+    const serverNow = Date.now()
+    const timer = changeTimer(readStudio(current.data.record.data).timer, action, userId, serverNow)
+    const result = await run('records.update', { ...target, data: { timer: JSON.stringify(timer) } })
+    return result.success ? Response.json({ timer, serverNow }) : Response.json({ error: 'Could not save the timer.' }, { status: 503 })
   }
 
   private async updateReaction(userId: string, { noteId, kind, active }: ReactionChange) {
@@ -135,6 +164,14 @@ export function createBoardRecord(stub: DurableObjectStub, userId: string, input
 
 export function writeBoardReaction(stub: DurableObjectStub, userId: string, input: ReactionChange) {
   return stub.fetch(internalRequest(REACTION_PATH, userId, input))
+}
+
+export function writeStudio(stub: DurableObjectStub, userId: string, ops: StudioOp[]) {
+  return stub.fetch(internalRequest(STUDIO_PATH, userId, { ops }))
+}
+
+export function writeTimer(stub: DurableObjectStub, userId: string, action: TimerAction) {
+  return stub.fetch(internalRequest(TIMER_PATH, userId, action))
 }
 
 export async function getBoard(stub: DurableObjectStub, userId: string) {

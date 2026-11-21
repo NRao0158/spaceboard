@@ -50,7 +50,7 @@ const worker = new Miniflare({ ...convertV4MiniflareOptions({
       summaryCalls++
       assert.equal(payload.stream, true)
       assert(JSON.stringify(payload.messages).includes('Updated together'))
-      if (summaryCalls === 1) {
+      if (payload.tool_choice?.name === 'code_execution') {
         assert(payload.tools.some(tool => tool.name === 'code_execution'))
         assert.equal(payload.tool_choice.name, 'code_execution')
         // Regression: successful sandbox analysis with no text must still
@@ -64,6 +64,9 @@ const worker = new Miniflare({ ...convertV4MiniflareOptions({
       assert.equal(payload.tools, undefined)
       assert.equal(payload.container, 'container_test')
       assert(JSON.stringify(payload.messages).includes('srvtoolu_mock'))
+      if (JSON.stringify(payload.messages.at(-1)).includes('blind spots')) return anthropicStream([{ type: 'text', text: JSON.stringify({
+        gaps: [{ title: 'Timing', detail: 'No date selected.', prompt: 'When do you start?', noteIds: [summarizedNoteId, randomUUID()] }],
+      }) }])
       return anthropicStream([{ type: 'text', text: JSON.stringify({
         summary: 'Run the pilot next week.',
         themes: [{ name: 'Pilot', detail: 'Try one team.', noteIds: [summarizedNoteId, summarizedNoteId, randomUUID(), 'invalid'] }],
@@ -72,7 +75,7 @@ const worker = new Miniflare({ ...convertV4MiniflareOptions({
     },
   },
   log: new Log(LogLevel.WARN),
-}), resourcePersistencePath: ".spaceboard-runtime-data", log: new Log(LogLevel.WARN) })
+}), cf: false, resourcePersistencePath: '.wrangler/ultimate-runtime', log: new Log(LogLevel.WARN) })
 const activeSockets = []
 
 async function request(path, method, auth, data, expected) {
@@ -188,11 +191,62 @@ try {
     nextSteps: ['Confirm the team.'], included: 1, total: 1,
   })
   assert.equal(summaryCalls, 2)
+  const gaps = await request(path + '/gaps', 'POST', a, null, 200)
+  assert.deepEqual(gaps, { gaps: [{ title: 'Timing', detail: 'No date selected.', prompt: 'When do you start?', noteIds: [saved.id] }], included: 1, total: 1 })
+  assert.equal(summaryCalls, 4)
+  await request(path + '/summary', 'POST', null, null, 401)
+  await request(path + '/timer', 'PUT', null, { action: 'start' }, 401)
+  await request(path + '/timer', 'PUT', b, { action: 'start', startedBy: 'author' }, 400)
+  const started = await request(path + '/timer', 'PUT', b, { action: 'start', duration: 180 }, 200)
+  assert.equal(started.timer.startedBy, 'peer')
+  assert.equal(started.timer.endsAt, started.serverNow + 180_000)
+  const paused = await request(path + '/timer', 'PUT', a, { action: 'pause' }, 200)
+  assert.equal(paused.timer.status, 'paused')
+  assert(paused.timer.remainingMs > 179_000 && paused.timer.remainingMs <= 180_000)
+
+  const second = await request(path + '/notes', 'POST', b, { ...note, key: randomUUID(), x: 510, markdown: 'Other side of the thread' }, 201)
+  const edge = { id: randomUUID(), fromNoteId: saved.id, toNoteId: second.id, style: 'dashed', label: 'leads to' }
+  const frame = { id: randomUUID(), title: 'Pilot', x: 150, y: 165, width: 670, height: 330, color: 'indigo' }
+  const studio = (ops, who = a, status = 200) => request(path + '/studio', 'POST', who, { ops }, status)
+  await studio([{ kind: 'edge.put', edge }], null, 401)
+  await studio([{ kind: 'edge.put', edge: { ...edge, toNoteId: randomUUID() } }], a, 409)
+  await studio([{ kind: 'edge.put', edge: { ...edge, createdBy: 'peer' } }], a, 400)
+
+  const saveLayout = await studio([
+    { kind: 'note.patch', id: saved.id, set: { x: 250, y: 320 } },
+    { kind: 'section.put', section: frame },
+    { kind: 'edge.put', edge },
+  ])
+  const redo = await studio(saveLayout.inverse)
+  await studio(redo.inverse)
+  await studio([{ kind: 'note.patch', id: saved.id, set: { x: 50, y: 20 }, expect: { x: 350, y: 320 } }], b, 409)
+  const deletion = await studio([{ kind: 'note.delete', id: saved.id }], b)
+
+  async function boardState(room, tag) {
+    const watcher = await socket('/ws/board:' + room, a)
+    watcher.send(MSG.SUBSCRIBE, { subscriptionId: tag, query: { collection: 'boards' } })
+    const response = await watcher.receive((event) => event.type === MSG.QUERY_RESULT)
+    return response.payload.records[0].data
+  }
+  assert.deepEqual(JSON.parse((await boardState(board.id, 'deleted')).edges), [])
+  await studio(deletion.inverse, a, 409)
+  await studio(deletion.inverse, b)
+  await studio(deletion.inverse, b, 409)
+  const restoredBoard = await boardState(board.id, 'restored')
+  assert.deepEqual(JSON.parse(restoredBoard.edges), [{ ...edge, createdBy: 'author' }])
+  assert.deepEqual(JSON.parse(restoredBoard.sections), [frame])
+  const finalNotes = await socket('/ws/board:' + board.id, a)
+  finalNotes.send(MSG.SUBSCRIBE, { subscriptionId: 'restored-notes', query: { collection: 'notes' } })
+  const final = (await finalNotes.receive((event) => event.type === MSG.QUERY_RESULT)).payload.records.find((item) => item.recordId === saved.id)
+  assert.equal(final.createdBy, 'author')
+  assert.deepEqual(JSON.parse(final.data.reactions), [{ userId: 'peer', kind: 'like' }])
+  await request(path + '/notes/' + second.id, 'DELETE', b, null, 200)
+  assert.deepEqual(JSON.parse((await boardState(board.id, 'legacy-deleted')).edges), [])
   await request(notePath, 'DELETE', b, null, 200)
   await request(notePath, 'DELETE', b, null, 200)
   await request(notePath, 'PATCH', b, { x: 1, y: 2 }, 404)
   await request(path + '/summary', 'POST', a, null, 400)
-  console.log('Passed: auth guard, idempotent board and note creation, validation, shared access, WebSocket sync, cursor, editing, drag presence, reactions, structured sandbox insights, persisted snapshot, and deletion.')
+  console.log('Passed: auth guard, idempotent board and note creation, validation, shared access, WebSocket sync, cursor, editing, drag presence, reactions, structured sandbox insights, persisted snapshot, section and timer state, two AI modes, guarded undo, and connector cascade.')
 } finally {
   for (const socket of activeSockets) socket.close()
   await worker.dispose()

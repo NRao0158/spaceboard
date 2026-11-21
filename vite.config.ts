@@ -10,6 +10,11 @@ import { prerender } from './prerender.ts'
 const appDir = fileURLToPath(new URL('.', import.meta.url))
 
 export default defineConfig({
+  build: {
+    // Lint and prerender deliberately run in build hooks. Keep build diagnostics
+    // focused on correctness rather than the fraction of time those hooks take.
+    rolldownOptions: { checks: { bundlerTimings: false } },
+  },
   plugins: [
     react(),
     generouted(),

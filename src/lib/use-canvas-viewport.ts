@@ -4,11 +4,15 @@ import { centerCamera, constrainCamera, fitToNotes, screenToCanvas, zoomAt, type
 
 const initial: Camera = { x: 0, y: 0, zoom: 1 }
 
-export function useCanvasViewport() {
+export function useCanvasViewport(onManual?: () => void) {
   const viewport = useRef<HTMLDivElement>(null)
   const cameraRef = useRef(initial)
   const sizeRef = useRef<Size>({ width: 1, height: 1 })
   const frame = useRef(0)
+  const followFrame = useRef(0)
+  const followTarget = useRef<Point | null>(null)
+  const manual = useRef(onManual)
+  manual.current = onManual
   const drag = useRef<{ id: number; start: Point; origin: Camera } | null>(null)
   const [camera, setCamera] = useState(initial)
   const [size, setSize] = useState(sizeRef.current)
@@ -37,6 +41,7 @@ export function useCanvasViewport() {
         if (scroll && scroll.scrollHeight > scroll.clientHeight) return
       }
       event.preventDefault()
+      manual.current?.()
       cancelAnimationFrame(frame.current)
       const multiplier = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? element.clientHeight : 1
       const current = cameraRef.current
@@ -53,6 +58,7 @@ export function useCanvasViewport() {
     }
     element.addEventListener('wheel', wheel, { passive: false })
     return () => {
+      cancelAnimationFrame(followFrame.current)
       observer.disconnect()
       element.removeEventListener('wheel', wheel)
       cancelAnimationFrame(frame.current)
@@ -83,6 +89,30 @@ export function useCanvasViewport() {
   function pointAt(clientX: number, clientY: number) {
     const bounds = viewport.current?.getBoundingClientRect()
     return screenToCanvas({ x: clientX - (bounds?.left ?? 0), y: clientY - (bounds?.top ?? 0) }, cameraRef.current)
+  }
+
+  function follow(point: Point | null) {
+    followTarget.current = point
+    if (!point) {
+      cancelAnimationFrame(followFrame.current)
+      followFrame.current = 0
+      return
+    }
+    if (followFrame.current) return
+    cancelAnimationFrame(frame.current)
+    const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches
+    function chase() {
+      followFrame.current = 0
+      if (!followTarget.current) return
+      const current = cameraRef.current
+      const next = centerCamera(followTarget.current, sizeRef.current, current.zoom)
+      const dx = next.x - current.x
+      const dy = next.y - current.y
+      if (reduce || Math.hypot(dx, dy) < .7) { apply(next); return }
+      apply({ ...current, x: current.x + dx * .19, y: current.y + dy * .19 })
+      followFrame.current = requestAnimationFrame(chase)
+    }
+    followFrame.current = requestAnimationFrame(chase)
   }
 
   function focus(point: Point, smooth = true) {
@@ -120,7 +150,7 @@ export function useCanvasViewport() {
   }
 
   return {
-    viewport, camera, size, panning, pointAt, focus, startPan, movePan, stopPan,
+    viewport, camera, size, panning, pointAt, focus, follow, startPan, movePan, stopPan,
     zoom: (value: number) => animate(constrainCamera(zoomAt(cameraRef.current, value, {
       x: sizeRef.current.width / 2, y: sizeRef.current.height / 2,
     }), sizeRef.current)),

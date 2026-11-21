@@ -19,6 +19,7 @@ import { Suspense, type ReactNode } from 'react'
 import { Outlet } from 'react-router-dom'
 import { DeepSpaceAuthProvider, useAuthStatus } from 'deepspace'
 import { RecordProvider, RecordScope, AgentTools } from 'deepspace'
+import { StudioCommandsProvider } from '@/lib/studio-commands'
 import Navigation from '../../components/Navigation'
 import { useToast } from '@/components/ui'
 import { APP_NAME, SCOPE_ID } from '../../constants'
@@ -31,6 +32,7 @@ export default function AppLayout() {
           when <Seo> unmounts, so every route without <Seo> sets its own. */}
       <title>{APP_NAME}</title>
       <AuthBoot>
+        <StudioCommandsProvider>
         <div className="sb-app-shell flex h-dvh flex-col overflow-hidden">
           <Navigation />
           <main className="flex-1 overflow-y-auto min-h-0">
@@ -39,6 +41,7 @@ export default function AppLayout() {
             </Suspense>
           </main>
         </div>
+        </StudioCommandsProvider>
       </AuthBoot>
     </DeepSpaceAuthProvider>
   )
