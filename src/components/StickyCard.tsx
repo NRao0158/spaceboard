@@ -37,11 +37,14 @@ export function StickyCard(props: Props) {
   const [format, setFormat] = useState<NoteFormat>()
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [actionBusy, setActionBusy] = useState(false)
+  const [colorChange, setColorChange] = useState<{ from: NoteColor; to: NoteColor }>()
+  const [colorBusy, setColorBusy] = useState(false)
   const [optimisticVotes, setOptimisticVotes] = useState<{ source?: string; votes: Reaction[] }>()
   const drag = useRef<{ id: number; origin: Point; grab: Point; next: Point; moved: boolean } | null>(null)
   const renderedVotes = useMemo(() => readReactions(data.reactions), [data.reactions])
   const votes = optimisticVotes && optimisticVotes.source === data.reactions ? optimisticVotes.votes : renderedVotes
   const position = local ?? remoteDrag ?? data
+  const shownColor = colorChange?.from === data.color ? colorChange.to : data.color
 
   function begin(nextFormat?: NoteFormat) {
     if (!editable) return
@@ -103,6 +106,23 @@ export function StickyCard(props: Props) {
     }
   }
 
+  async function changeColor(color: NoteColor) {
+    if (colorBusy || shownColor === color) return
+    const change = { from: data.color, to: color }
+    setColorBusy(true)
+    setColorChange(change)
+    try {
+      await props.onColor(color)
+      // The subscription replaces the optimistic value. Expire it if the
+      // connection drops after the server acknowledges the write.
+      window.setTimeout(() => setColorChange((current) => current === change ? undefined : current), 1000)
+    } catch {
+      setColorChange(undefined)
+    } finally {
+      setColorBusy(false)
+    }
+  }
+
   function deleteSelected() {
     if (!confirmDelete) { setConfirmDelete(true); return }
     setActionBusy(true)
@@ -123,7 +143,7 @@ export function StickyCard(props: Props) {
       }}>
       {selected && editable && (
         <div className="sb-note-tools" role="group" aria-label="Selected note actions">
-          <ColorSwatches value={data.color} onChange={(color) => { void props.onColor(color).catch(() => {}) }} />
+          <ColorSwatches value={shownColor} disabled={colorBusy} onChange={(color) => void changeColor(color)} />
           {!editing && <MarkdownTools onInsert={begin} />}
           {!editing && <button type="button" aria-label="Edit selected note" title="Edit note" onClick={() => begin()}><Pencil size={15} /></button>}
           <button type="button" aria-label="Duplicate note" title="Duplicate note" disabled={editing} onClick={props.onDuplicate}><Copy size={15} /></button>
@@ -131,7 +151,7 @@ export function StickyCard(props: Props) {
             onBlur={() => setConfirmDelete(false)} onClick={deleteSelected}>{confirmDelete ? <Check size={15} /> : <Trash2 size={15} />}</button>
         </div>
       )}
-      <div className={'sb-note-sheet sb-paper-' + data.color} data-editing={editing || !!props.remoteEditor}>
+      <div className={'sb-note-sheet sb-paper-' + shownColor} data-editing={editing || !!props.remoteEditor}>
         <div className="sb-note-titlebar">
           <button type="button" aria-label="Move note. Use the arrow keys when focused." title="Drag or use arrow keys" disabled={!editable || editing}
             className="sb-note-grip" onPointerDown={start} onPointerMove={move} onPointerUp={(event) => void finish(event, true)}
