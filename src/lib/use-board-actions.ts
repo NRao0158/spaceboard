@@ -1,45 +1,45 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { boardRequest } from './board-api'
-import { clusterByTheme, findFreeNoteSpot, type Insights } from './theme-layout'
+import { findFreeNoteSpot } from './theme-layout'
 import type { Reaction, ReactionKind } from './board-reactions'
 import { MAX_NOTES, type Note, type NoteFields, type Point } from '../schemas/board-schema'
+import type { StudioOp, StudioResult } from './board-studio'
+import type { NotePosition } from './board-sections'
+import { useBoardHistory } from './use-board-history'
 
-type Placement = Point & { id: string }
 type NewNote = Pick<NoteFields, 'markdown' | 'color'> & Point & { key: string }
 
 export function useBoardActions(boardId: string, records: Note[]) {
   const path = '/' + boardId + '/notes'
   const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
   const [pending, setPending] = useState<Record<string, Point>>({})
-  const [undo, setUndo] = useState<Placement[]>([])
-  const [layoutBusy, setLayoutBusy] = useState(false)
-  const layoutLock = useRef(false)
-  const timers = useRef(new Map<string, number>())
-  const moveQueue = useRef(new Map<string, Promise<unknown>>())
+  const latest = useRef(records)
+  const loggedCreates = useRef(new Set<string>())
   const created = useRef(new Map<string, Point>())
-  const latestRecords = useRef(records)
-  latestRecords.current = records
+  const expiry = useRef(new Map<string, number>())
+  latest.current = records
 
   useEffect(() => {
-    const active = timers.current
-    return () => active.forEach((timer) => clearTimeout(timer))
+    const timers = expiry.current
+    return () => timers.forEach((timer) => clearTimeout(timer))
   }, [])
 
   useEffect(() => {
     for (const note of records) created.current.delete(note.recordId)
     setPending((previous) => {
-      const changes = Object.entries(previous)
-      const remaining = changes.filter(([id, point]) => {
-        const record = records.find((note) => note.recordId === id)
-        return record && (record.data.x !== point.x || record.data.y !== point.y)
+      const old = Object.entries(previous)
+      const left = old.filter(([id, point]) => {
+        const matched = records.find((n) => n.recordId === id)
+        return matched && (matched.data.x !== point.x || matched.data.y !== point.y)
       })
-      return remaining.length === changes.length ? previous : Object.fromEntries(remaining)
+      return left.length === old.length ? previous : Object.fromEntries(left)
     })
   }, [records])
 
-  const notes = records.map((record) => pending[record.recordId] ? {
+  const notes = useMemo(() => records.map((record) => pending[record.recordId] ? {
     ...record, data: { ...record.data, ...pending[record.recordId] },
-  } : record)
+  } : record), [records, pending])
 
   function report(failure: unknown) {
     setError(failure instanceof Error ? failure.message : 'Could not complete the board action.')
@@ -50,18 +50,52 @@ export function useBoardActions(boardId: string, records: Note[]) {
     return findFreeNoteSpot([...notes.map(({ data }) => data), ...created.current.values()], preferred)
   }
 
-  async function createNote(data: NewNote) {
-    const result = await boardRequest<{ id: string }>(path, { method: 'POST', data })
-    if (!latestRecords.current.some((note) => note.recordId === result.id)) created.current.set(result.id, { x: data.x, y: data.y })
-    return result.id
+  function clearPosition(id: string, point: Point) {
+    setPending((old) => {
+      if (old[id] !== point) return old
+      const next = { ...old }
+      delete next[id]
+      return next
+    })
   }
 
-  function patchNote(id: string, data: Partial<Pick<NoteFields, 'markdown' | 'color'>> | Point) {
-    return boardRequest(path + '/' + id, { method: 'PATCH', data })
+  async function send(ops: StudioOp[]) {
+    setBusy(true)
+    setError('')
+    const moving: [string, Point][] = ops.flatMap((op) => op.kind === 'note.patch' && 'x' in op.set ? [[op.id, op.set]] : [])
+    if (moving.length) setPending((old) => ({ ...old, ...Object.fromEntries(moving) }))
+    try {
+      const { inverse } = await boardRequest<StudioResult>('/' + boardId + '/studio', { method: 'POST', data: { ops } })
+      for (const [id, point] of moving) {
+        clearTimeout(expiry.current.get(id))
+        expiry.current.set(id, window.setTimeout(() => { expiry.current.delete(id); clearPosition(id, point) }, 1100))
+      }
+      return inverse
+    } catch (failure) {
+      for (const [id, point] of moving) clearPosition(id, point)
+      report(failure)
+      throw failure
+    } finally {
+      setBusy(false)
+    }
   }
 
-  async function deleteNote(id: string) {
-    await boardRequest(path + '/' + id, { method: 'DELETE' })
+  const history = useBoardHistory(send)
+
+  function createNote(data: NewNote) {
+    return history.enqueue(async () => {
+      const result = await boardRequest<{ id: string }>(path, { method: 'POST', data })
+      if (!latest.current.some((note) => note.recordId === result.id)) created.current.set(result.id, { x: data.x, y: data.y })
+      if (!loggedCreates.current.has(result.id)) {
+        loggedCreates.current.add(result.id)
+        history.record([{ kind: 'note.delete', id: result.id }])
+      }
+      return result.id
+    })
+  }
+
+  async function createNotes(items: NewNote[]) {
+    for (const item of items) await createNote(item)
   }
 
   async function reactToNote(id: string, kind: ReactionKind, active: boolean) {
@@ -69,75 +103,14 @@ export function useBoardActions(boardId: string, records: Note[]) {
     return result.reactions
   }
 
-  function clearPending(id: string, point: Point) {
-    setPending((previous) => {
-      if (previous[id] !== point) return previous
-      const remaining = { ...previous }
-      delete remaining[id]
-      return remaining
-    })
+  function moveNotes(points: NotePosition[], extra: StudioOp[] = [], label?: string) {
+    const moves: StudioOp[] = points.map(({ id, x, y }) => ({ kind: 'note.patch', id, set: { x, y } }))
+    return history.perform([...moves, ...extra], label)
   }
 
-  async function moveNote(id: string, point: Point) {
-    setPending((previous) => ({ ...previous, [id]: point }))
-    const previous = moveQueue.current.get(id)
-    const run = (previous ?? Promise.resolve()).catch(() => {}).then(() => patchNote(id, point))
-    moveQueue.current.set(id, run)
-    try {
-      await run
-      return true
-    } catch (failure) {
-      clearPending(id, point)
-      report(failure)
-      return false
-    } finally {
-      if (moveQueue.current.get(id) === run) {
-        moveQueue.current.delete(id)
-        clearTimeout(timers.current.get(id))
-        timers.current.set(id, window.setTimeout(() => {
-          timers.current.delete(id)
-          clearPending(id, point)
-        }, 1300))
-      }
-    }
+  return {
+    notes, error, setError, report, availableSpot, createNote, createNotes, reactToNote, moveNotes,
+    perform: history.perform, undo: () => history.step('undo'), redo: () => history.step('redo'),
+    canUndo: history.canUndo, undoLabel: history.undoLabel, canRedo: history.canRedo, layoutBusy: busy,
   }
-
-  async function applyPositions(placements: Placement[]) {
-    const applied = new Set<string>()
-    // Limit concurrent requests and retain the exact successful writes for undo.
-    for (let index = 0; index < placements.length; index += 6) {
-      await Promise.all(placements.slice(index, index + 6).map(async ({ id, x, y }) => {
-        if (await moveNote(id, { x, y })) applied.add(id)
-      }))
-    }
-    return applied
-  }
-
-  async function changeLayout(themes?: Insights['themes']) {
-    if (layoutLock.current) return
-    setError('')
-    const before = notes.map(({ recordId: id, data: { x, y } }) => ({ id, x, y }))
-    const live = new Map(before.map((point) => [point.id, point]))
-    const placements = (themes ? clusterByTheme(before.map(({ id }) => id), themes) : undo).filter(({ id }) => live.has(id))
-    const moves = placements.filter(({ id, x, y }) => live.get(id)?.x !== x || live.get(id)?.y !== y)
-    if (themes && !moves.length) return
-    layoutLock.current = true
-    setLayoutBusy(true)
-    try {
-      const applied = await applyPositions(moves)
-      const skipped = new Set(placements.filter(({ id }) => !moves.some((move) => move.id === id)).map(({ id }) => id))
-      if (themes) {
-        if (applied.size) setUndo(before.filter(({ id }) => applied.has(id)))
-      } else {
-        setUndo(undo.filter(({ id }) => live.has(id) && !applied.has(id) && !skipped.has(id)))
-      }
-      if (applied.size < moves.length) setError('Some notes could not be moved. You can retry or undo the saved moves.')
-      return placements.filter(({ id }) => applied.has(id) || skipped.has(id))
-    } finally {
-      layoutLock.current = false
-      setLayoutBusy(false)
-    }
-  }
-
-  return { notes, error, setError, report, availableSpot, createNote, patchNote, deleteNote, reactToNote, moveNote, layoutBusy, changeLayout, canUndo: undo.length > 0 }
 }
